@@ -1,0 +1,29 @@
+trigger:
+  branches:
+    include: [main]
+pr:
+  branches:
+    include: [main]
+
+# Public contributions must never execute on the private Default pool.
+pool:
+  vmImage: ubuntu-latest
+
+steps:
+  - checkout: self
+    persistCredentials: false
+  - task: NodeTool@0
+    inputs:
+      versionSpec: '22.x'
+  - script: npm ci
+    displayName: Install server and CLI dependencies
+  - script: npm --prefix dashboard ci
+    displayName: Install dashboard dependencies
+  - script: npm test -- --runInBand --watchman=false --testTimeout=30000
+    displayName: Test server and CLI
+  - script: npm --prefix dashboard test -- --runInBand --watchman=false
+    displayName: Test dashboard
+  - script: npm run build -- --webpack
+    displayName: Build Community and verify runtime assets
+  - script: node ci/smoke.cjs
+    displayName: Verify compiled Community startup
