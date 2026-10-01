@@ -1,0 +1,13 @@
+# Must FAIL, deliberately.
+#
+# This is the only way to exercise the exit-code 2 path end to end. A smoke
+# test that only ever sees success cannot tell a working verdict pipeline
+# from one that reports success unconditionally - which is not hypothetical
+# here: 0.1.50 shipped a service that exited 0 while starting nothing, and
+# systemd called it a success.
+appId: com.example.android.contactmanager
+tags:
+  - regression
+---
+- launchApp
+- assertVisible: "deviceyard-smoke-element-that-must-not-exist"

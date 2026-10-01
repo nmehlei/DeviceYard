@@ -1,0 +1,16 @@
+{
+  "name": "@deviceyard/cli",
+  "version": "0.0.0",
+  "description": "Run Maestro flows on a DeviceYard device farm from the command line",
+  "license": "AGPL-3.0-only",
+  "private": true,
+  "bin": {
+    "deviceyard": "bin/deviceyard.js"
+  },
+  "files": [
+    "bin"
+  ],
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "sourceRevision": "493b5f9e15d36c88c37e2072ed5a76f704c5e1c7",
+  "excluded": {
+    "tests/scheduler.test.ts": "Legacy unrestricted scheduler coverage retained in private original repository; Pro scheduler suite moves to Pro.",
+    "tests/editions/proScheduler.test.ts": "Moves to private Pro repository.",
+    "tests/editions/license.test.ts": "Moves to private Pro repository.",
+    "tests/editions/build.test.ts": "Private staging-tool tests remain in original repository; replaced by standalone build tests.",
+    "tests/packagingEntrypoint.test.ts": "Private deployment pipeline assertions remain in original repository; replaced by standalone runtime-asset checks.",
+    "dashboard/AGENTS.md": "Internal instructions.",
+    "dashboard/CLAUDE.md": "Internal instructions."
+  },
+  "publication": "Private review candidate; APK fixture provenance and dependency license audit pending."
+}

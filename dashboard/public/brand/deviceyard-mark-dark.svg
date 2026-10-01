@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" fill="none">
+  <title>DeviceYard</title>
+  <g stroke="#e6edf5" stroke-width="7" stroke-linejoin="round">
+    <path d="M28 56V25a15 15 0 0 1 15-15h42a15 15 0 0 1 15 15v31M28 72v31a15 15 0 0 0 15 15h42a15 15 0 0 0 15-15V72"/>
+    <path d="M57 21h14" stroke-width="5" stroke-linecap="round"/>
+  </g>
+  <g stroke="#00bfa6" stroke-width="8" stroke-linecap="round">
+    <path d="M14 64h23c27 0 14-30 43-30"/>
+    <path d="M37 64c27 0 14 30 43 30"/>
+    <path d="M37 64c13 0 15 10 26 10s13-14 29-14h22"/>
+  </g>
+  <g fill="#e6edf5"><circle cx="12" cy="64" r="7.5"/><circle cx="80" cy="34" r="7.5"/><circle cx="80" cy="94" r="7.5"/></g>
+  <circle cx="116" cy="60" r="7.5" fill="#00bfa6"/>
+</svg>

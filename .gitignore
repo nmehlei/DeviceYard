@@ -1,0 +1,11 @@
+node_modules/
+node_modules
+dist/
+*.local
+.env
+.superpowers/
+.worktrees/
+.edition-builds/
+
+# Pinned shellcheck fetched by ci/lint.sh
+.lint-cache/
