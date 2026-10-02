@@ -1,0 +1,1 @@
+export function ConcurrencyCard(){return <section className="ops-box ops-pad"><h2>Community execution</h2><p>One active device and one test run at a time. Choose your device on the Devices page.</p></section>;}

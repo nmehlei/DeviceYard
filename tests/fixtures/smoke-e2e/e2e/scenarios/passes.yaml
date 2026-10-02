@@ -1,0 +1,8 @@
+# Must PASS. Launching the app is the least this farm can be asked to do: if
+# this fails, the device, the install or Maestro itself is broken - not the
+# CLI under test.
+appId: com.example.android.contactmanager
+tags:
+  - smoke
+---
+- launchApp
