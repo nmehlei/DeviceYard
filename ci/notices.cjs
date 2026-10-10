@@ -11,6 +11,14 @@ for(const area of ['.','dashboard']){
     const directory=path.join(base,location);
     let pkg;try{pkg=JSON.parse(fs.readFileSync(path.join(directory,'package.json')));}catch{continue;}
     const notices=fs.readdirSync(directory).filter(name=>/^(licen[cs]e|copying|notice)([.-]|$)/i.test(name)&&fs.statSync(path.join(directory,name)).isFile());
+    // Some packages (for example cookie-signature) put the actual license
+    // grant in their README instead of shipping a standalone license file.
+    if(!notices.length){
+      for(const name of fs.readdirSync(directory).filter(name=>/^readme([.-]|$)/i.test(name))){
+        const file=path.join(directory,name);
+        if(fs.statSync(file).isFile() && /permission is hereby granted|redistribution and use in source and binary forms/i.test(fs.readFileSync(file,'utf8')))notices.push(name);
+      }
+    }
     inventory.push({area,name:pkg.name,version:pkg.version,license:pkg.license||entry.license||'SEE LICENSE FILE',dev:!!entry.dev,
       notices:notices.map(name=>({file:name,text:fs.readFileSync(path.join(directory,name),'utf8')}))});
   }
