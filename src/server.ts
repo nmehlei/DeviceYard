@@ -1,4 +1,6 @@
 import os from "os";
+import { randomUUID } from 'node:crypto';
+import { JobInputsStore } from './store/jobInputs';
 import fs from "fs";
 import path from "path";
 import express, {
@@ -222,15 +224,9 @@ export function createServer(deps: ServerDeps): ServerHandle {
   // matches the field.
   const uploadRoot = deps.uploadDir ?? os.tmpdir();
 
-  // Per-job values POST /run resolved before the job was queued, held until
-  // the scheduler claims it. In-memory on purpose: the uploads these point at
-  // live in a temp directory that does not survive a restart either, so
-  // persisting them would promise a durability the files do not have. A job
-  // whose entry is missing after a restart is exactly the interrupted job
-  // reconcileInterrupted closes at boot.
-  const appIdByJob = new Map<string, string>();
-  const uploadsByJob = new Map<string, { apkPath: string; flowsArchivePath: string }>();
-  const envByJob = new Map<string, Record<string, string>>();
+  // Payload publication precedes queue insertion, so every accepted job can
+  // execute after restart without its original multipart upload directory.
+  const jobInputs = new JobInputsStore(deps.dataDir);
   // The submitting request's trace context, captured at submit() time and
   // applied around the runJob invocation below. Dispatch happens from three
   // places - submit(), a completing job's .finally(), and the safety tick -
@@ -279,14 +275,13 @@ export function createServer(deps: ServerDeps): ServerHandle {
         // which still occupies the device until the finally below.
         controlHub.refreshModes();
         try {
-          const appId = appIdByJob.get(jobId);
-          const uploads = uploadsByJob.get(jobId);
-          if (!appId || !uploads) {
+          const uploads = await jobInputs.load(jobId);
+          if (!uploads) {
             // A queued row whose in-memory context is gone - a job that
             // outlived the process that accepted it. There is nothing to run:
             // its apk is gone too. Throwing lets the scheduler close it as
             // failed with this reason rather than dereferencing undefined.
-            throw new Error("job context is no longer available - it was queued by a previous process");
+            throw new Error('job inputs unavailable');
           }
           // Applied around the call, not read fresh here: the context active
           // at this point belongs to whichever dispatch triggered this claim
@@ -301,7 +296,7 @@ export function createServer(deps: ServerDeps): ServerHandle {
             runJob({
               jobId,
               deviceId,
-              appId,
+              appId: uploads.appId,
               dataDir: deps.dataDir,
               apkPath: uploads.apkPath,
               flowsArchivePath: uploads.flowsArchivePath,
@@ -313,7 +308,7 @@ export function createServer(deps: ServerDeps): ServerHandle {
               extractDir: fs.mkdtempSync(path.join(uploadRoot, "mobile-farm-")),
               repo: deps.repo,
               runner: deps.runner,
-              env: envByJob.get(jobId),
+              env: uploads.env,
               // Read at dispatch, not at submit: an operator who changes a
               // device's policy expects the next job to honour it, not every
               // job queued since the change. A device removed between claim
@@ -323,9 +318,7 @@ export function createServer(deps: ServerDeps): ServerHandle {
             })
           );
         } finally {
-          appIdByJob.delete(jobId);
-          uploadsByJob.delete(jobId);
-          envByJob.delete(jobId);
+          await jobInputs.remove(jobId);
           traceCtxByJob.delete(jobId);
           // The job is terminal by now, so the device reads as free again.
           controlHub.refreshModes();
@@ -529,6 +522,7 @@ export function createServer(deps: ServerDeps): ServerHandle {
       // still-synchronous statement in this same try (e.g. res.status(202))
       // were to unexpectedly throw.
       let filesOwnedByJob = false;
+      let preparedId: string | undefined;
       try {
         const apkFile = files?.apk?.[0];
         const flowsArchiveFile = files?.flowsArchive?.[0];
@@ -601,7 +595,9 @@ export function createServer(deps: ServerDeps): ServerHandle {
           return;
         }
 
-        const job = deps.repo.createJob(req.org as string, flows as string[], env, appId, appVersion);
+        preparedId = randomUUID();
+        await jobInputs.save(preparedId, { appId, apkPath: apkFile.path, flowsArchivePath: flowsArchiveFile.path, env });
+        const job = deps.repo.createJob(req.org as string, flows as string[], env, appId, appVersion, preparedId);
         recordJobSubmitted(req.org as string);
         filesOwnedByJob = true;
 
@@ -609,12 +605,7 @@ export function createServer(deps: ServerDeps): ServerHandle {
         // where the scheduler's runJob closure can find it again. The device
         // is deliberately NOT decided here: binding a job to a device at
         // submit time would park it behind one device while another sat idle.
-        appIdByJob.set(job.id, appId);
-        uploadsByJob.set(job.id, {
-          apkPath: apkFile.path,
-          flowsArchivePath: flowsArchiveFile.path,
-        });
-        if (env) envByJob.set(job.id, env);
+        cleanupUploadedFiles(files);
         // Captured here - synchronously, in this request's own async
         // context - so the job's span is a child of THIS "POST /run" span
         // regardless of which dispatch path later claims it.
@@ -650,6 +641,7 @@ export function createServer(deps: ServerDeps): ServerHandle {
         });
         if (!filesOwnedByJob) {
           cleanupUploadedFiles(files);
+          if (preparedId) await jobInputs.remove(preparedId).catch(() => log.error('failed to remove unqueued inputs'));
         }
         if (!res.headersSent) {
           res.status(500).json({ error: "internal error" });
