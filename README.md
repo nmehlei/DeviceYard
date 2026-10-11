@@ -26,6 +26,8 @@ Run `npm start`. Use a TLS reverse proxy for remote access. One server process p
 
 See the [user guide](docs/guide/index.md) for setup, authentication, API, CLI, MCP, and remote control.
 
+A Linux USB [container release candidate](docs/guide/container.md) can be built locally. Public images and hardware acceptance are pending.
+
 ## License and release status
 
 First-party Community code is intended for AGPL-3.0-only distribution; third-party components retain their licenses. This checkout is a private migration candidate. Public release awaits provenance and dependency review. It is not a production deployment or a commercial license grant for Pro.

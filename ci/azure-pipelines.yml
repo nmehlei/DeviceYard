@@ -27,3 +27,7 @@ steps:
     displayName: Build Community and verify runtime assets
   - script: node ci/smoke.cjs
     displayName: Verify compiled Community startup
+  - script: docker build --platform linux/amd64 --build-arg SOURCE_REVISION=$(Build.SourceVersion) -f ci/container/Dockerfile -t deviceyard-community:test .
+    displayName: Build Community container (no publication)
+  - script: node ci/container/smoke.cjs deviceyard-community:test
+    displayName: Verify container lifecycle and persistence

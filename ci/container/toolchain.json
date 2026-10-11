@@ -1,0 +1,12 @@
+{
+  "platform": "linux/amd64",
+  "nodeBase": "node:22-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392",
+  "maestro": {
+    "version": "2.6.1",
+    "url": "https://github.com/mobile-dev-inc/Maestro/releases/download/cli-2.6.1/maestro.zip",
+    "sha256": "3440825f514f537c6a96bcf5de995780c2a4a7f83a43208fdc95d4f1fecfad3b"
+  },
+  "javaPackage": "openjdk-17-jre-headless",
+  "adbPackage": "adb",
+  "packagePolicy": "Debian signed package repositories; exact installed versions recorded in notices/os-packages.tsv on every build. Rebuilds may include security updates."
+}
