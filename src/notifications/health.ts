@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { MaintenanceCoordinator } from '../maintenance/coordinator';
 import { execFile } from "node:child_process";
 import { NotificationStore, DAY_MS } from "./store";
 import { duration, type QueuedEmail } from "./worker";
@@ -12,18 +13,23 @@ type Incident = { incident_id: string | null; offline_since: number | null; reco
 export class DeviceHealthMonitor {
   private active = false;
   constructor(private readonly store: NotificationStore,
-    private readonly probe: () => Promise<Map<string, boolean>> = probeDevices) {}
+    private readonly probe: () => Promise<Map<string, boolean>> = probeDevices,
+    private readonly maintenance?: MaintenanceCoordinator) {}
 
   async tick(): Promise<void> {
     if (this.active) return;
+    const release = this.maintenance?.acquire('operation');
+    if (this.maintenance && !release) return;
     this.active = true;
     // Its own root span per tick - see the note in worker.ts.
-    return withSpan("device.healthcheck", {}, () => this.tickInner());
+    try { await withSpan("device.healthcheck", {}, () => this.tickInner()); }
+    finally { release?.(); }
   }
 
   private async tickInner(): Promise<void> {
     try {
       const states = await this.probe();
+      if (this.maintenance?.requested) return;
       const devices = this.store.db.all<{ id: string; label: string }>("SELECT id,label FROM devices");
       for (const device of devices) this.observe(device.id, device.label, states.get(device.id) ?? false);
       this.expandRecoveries();

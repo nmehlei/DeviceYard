@@ -8,8 +8,10 @@ import type { DeviceRepository } from "../store/deviceRepository";
 import type { ControlHub } from "../control/hub";
 import type { DevicePolicy } from '../editions/policy';
 import {SessionGrace} from '../editions/sessionGrace';
+import type { MaintenanceCoordinator } from '../maintenance/coordinator';
 
 export interface ControlUpgradeDeps {
+  maintenance?: MaintenanceCoordinator;
   policy?:DevicePolicy;
   now?: () => number;
   userRepo: UserRepository;
@@ -48,6 +50,9 @@ function refuse(socket: Duplex, status: number, message: string): void {
  */
 export function createControlUpgrade(deps: ControlUpgradeDeps) {
   const wss = new WebSocketServer({ noServer: true });
+  const unsubscribe = deps.maintenance?.onChange(requested => {
+    if (requested) for (const client of wss.clients) client.terminate();
+  });
 
   return {
     handleUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer): void {
@@ -80,8 +85,12 @@ export function createControlUpgrade(deps: ControlUpgradeDeps) {
         return;
       }
       if (deps.policy && !deps.policy.canUse(deviceId)) {refuse(socket,409,'Pro Required');return;}
+      if (deps.maintenance?.requested) { refuse(socket, 503, 'Maintenance'); return; }
 
       wss.handleUpgrade(req, socket, head, (ws) => {
+        const release = deps.maintenance?.acquire('stream');
+        if (deps.maintenance && !release) { ws.terminate(); return; }
+        ws.once('close', () => release?.());
         const grace=new SessionGrace(deps.now);
         const checkPolicy=():boolean=>{
           const state=grace.check(!deps.policy || deps.policy.canUse(deviceId));
@@ -131,9 +140,10 @@ export function createControlUpgrade(deps: ControlUpgradeDeps) {
       });
     },
 
-    close(): void {
+    close(): Promise<void> {
+      unsubscribe?.();
       for (const client of wss.clients) client.terminate();
-      wss.close();
+      return new Promise(resolve => wss.close(() => resolve()));
     },
   };
 }

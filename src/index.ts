@@ -142,7 +142,6 @@ export function bootstrap(env: NodeJS.ProcessEnv = process.env, editionFactory?:
   // Force a fresh probe before previously queued health messages can be claimed.
   db.run("UPDATE notification_incidents SET last_observed_at=0");
   const stopWorker = startNotificationWorker(worker);
-  const stopHealth = notification.enabled ? startDeviceHealthMonitor(new DeviceHealthMonitor(notificationStore)) : () => {};
 
   const app = createServer({
     editionFactory,
@@ -160,14 +159,10 @@ export function bootstrap(env: NodeJS.ProcessEnv = process.env, editionFactory?:
     userTokenRepo,
     notifications: { store: notificationStore, config: notification },
   });
+  const stopHealth = notification.enabled
+    ? startDeviceHealthMonitor(new DeviceHealthMonitor(notificationStore, undefined, app.maintenance)) : () => {};
 
-  // Boot reconciliation above has already closed everything the dead process
-  // left behind, so whatever is still queued here was queued by THIS process
-  // (nothing can be, at this point) or will be by the routes once the
-  // listener is up. Dispatching now is what stops a restart from leaving the
-  // pool idle: without it the first claim would wait for the backstop tick.
-  // Order is load-bearing - dispatching before failQueuedWithoutPayload would
-  // hand the scheduler jobs whose uploads no longer exist.
+  // Recovered queued work resumes immediately unless maintenance is active.
   app.scheduler.dispatch?.();
 
   return {

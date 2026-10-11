@@ -14,6 +14,8 @@ import { DeviceRepository } from "../../src/store/deviceRepository";
 import { signSession } from "../../src/session";
 import type {DevicePolicy} from '../../src/editions/policy';
 import {fakeStream} from '../helpers/fakeControlStream';
+import { MaintenanceCoordinator } from '../../src/maintenance/coordinator';
+import { JobRepository } from '../../src/store/jobRepository';
 
 const SESSION_SECRET = "test-secret-at-least-32-characters-long";
 
@@ -29,6 +31,7 @@ let memberId: number;
 let allowHardware=true;
 let policyNow=0;
 let leases: ControlLeases;
+let maintenance: MaintenanceCoordinator;
 
 /**
  * Opens a socket and settles with either the open event or the HTTP status the
@@ -70,12 +73,14 @@ beforeEach(async () => {
   migrate(db);
   userRepo = new UserRepository(db);
   deviceRepo = new DeviceRepository(db);
+  maintenance = new MaintenanceCoordinator(new JobRepository(db));
 
   adminId = userRepo.create({ username: "admin", email: "ad@example.com", password: "x", isAdmin: true }).id;
   memberId = userRepo.create({ username: "member", email: "me@example.com", password: "x", isAdmin: false }).id;
   deviceRepo.add("dev-1", "Test device");
 
   control = createControlUpgrade({
+    maintenance,
     now:()=>policyNow,
     policy:{canUse:()=>allowHardware,snapshot:()=>({edition:'community',state:'community',multiDevice:false,selectedDeviceId:'dev-1'}),select:()=>{}} satisfies DevicePolicy,
     userRepo,
@@ -98,7 +103,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  control.close();
+  await control.close();
   await new Promise((resolve) => server.close(resolve));
   db.close();
   fs.rmSync(dir, { recursive: true, force: true });
@@ -106,6 +111,13 @@ afterEach(async () => {
 
 test("refuses an unauthenticated upgrade with 401", async () => {
   expect(await connect("/api/devices/dev-1/control")).toEqual({ opened: false, status: 401 });
+});
+
+test('maintenance rejects an admin upgrade and resume permits it again', async () => {
+  maintenance.setRequested(true);
+  expect(await connect('/api/devices/dev-1/control', cookieFor(adminId))).toEqual({ opened: false, status: 503 });
+  maintenance.setRequested(false);
+  expect(await connect('/api/devices/dev-1/control', cookieFor(adminId))).toEqual({ opened: true });
 });
 
 test('edition policy refuses hardware socket even for administrator',async()=>{

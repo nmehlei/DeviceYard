@@ -2,6 +2,7 @@ import os from "os";
 import { randomUUID } from 'node:crypto';
 import { JobInputsStore } from './store/jobInputs';
 import { MaintenanceCoordinator } from './maintenance/coordinator';
+import { trackControlStream } from './maintenance/control';
 import fs from "fs";
 import path from "path";
 import express, {
@@ -247,10 +248,10 @@ export function createServer(deps: ServerDeps): ServerHandle {
     deps.scheduler ??
     (edition?.createScheduler ?? ((options:SchedulerDeps) => new Scheduler(options)))({
       policy: edition?.policy,
-      isDeviceOnline: async id => {
+      isDeviceOnline: id => maintenance.run('operation', async () => {
         const result = await (deps.runner ?? deviceOpsRunner)('adb', ['-s', id, 'get-state']);
         return result.code === 0 && result.stdout.trim() === 'device';
-      },
+      }),
       repo: deps.repo,
       deviceRepo: deps.deviceRepo,
       // A test-constructed server must not own a live 10s timer. ~40 suites
@@ -350,9 +351,9 @@ export function createServer(deps: ServerDeps): ServerHandle {
     isDeviceBusy: (deviceId) => deps.repo.runningDeviceIds().includes(deviceId),
     onEvent: (deviceId, detail) => deps.deviceRepo.recordEvent(deviceId, "control", detail),
     createSource: (deviceId, onFrame, onError) =>
-      createFrameSource({ deviceId, intervalMs: controlFrameIntervalMs, capture: captureScreenshot, onFrame, onError }),
+      createFrameSource({ deviceId, intervalMs: controlFrameIntervalMs, capture: id => maintenance.run('operation', () => captureScreenshot(id)), onFrame, onError }),
     leases: controlLeases,
-    startControlStream: deps.startControlStream ?? startScrcpyControlStream,
+    startControlStream: trackControlStream(maintenance, deps.startControlStream ?? startScrcpyControlStream),
     hasWaitingJobFor: (deviceId) => {
       if (edition && !edition.policy.canUse(deviceId)) return undefined;
       const jobId = deps.repo.oldestQueuedJobId();
@@ -383,13 +384,15 @@ export function createServer(deps: ServerDeps): ServerHandle {
   const controlTick = setInterval(() => controlHub.tick(Date.now()), 1000);
   controlTick.unref();
 
-  const upgrade = createControlUpgrade({ userRepo: deps.userRepo, deviceRepo: deps.deviceRepo, sessionSecret: deps.sessionSecret, hub: controlHub, policy:edition?.policy });
+  const stopMaintenanceDrain = maintenance.onChange(requested => { if (requested) controlHub.close(); });
+  const upgrade = createControlUpgrade({ userRepo: deps.userRepo, deviceRepo: deps.deviceRepo, sessionSecret: deps.sessionSecret, hub: controlHub, policy:edition?.policy, maintenance });
   app.control = {
     handleUpgrade: upgrade.handleUpgrade,
     close: () => {
+      stopMaintenanceDrain();
       clearInterval(controlTick);
       controlHub.close();
-      upgrade.close();
+      return upgrade.close();
     },
   };
 
@@ -803,6 +806,7 @@ export function createServer(deps: ServerDeps): ServerHandle {
   app.use(
     auth,
     deviceRoutes({
+      maintenance,
       policy: edition?.policy,
       repo: deps.repo,
       deviceRepo: deps.deviceRepo,
