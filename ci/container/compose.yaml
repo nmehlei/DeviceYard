@@ -1,0 +1,37 @@
+services:
+  deviceyard:
+    image: ${DEVICEYARD_IMAGE:-deviceyard-community:local}
+    platform: linux/amd64
+    build:
+      context: ../..
+      dockerfile: ci/container/Dockerfile
+    env_file:
+      - ${DEVICEYARD_ENV_FILE:?Set the absolute path to your private runtime env file}
+    environment:
+      DATA_DIR: /data
+      HOME: /home/deviceyard
+      PORT: '8080'
+    ports:
+      - '127.0.0.1:${DEVICEYARD_HTTP_PORT:-8080}:8080'
+    volumes:
+      - data:/data
+      - adb-identity:/home/deviceyard/.android
+      - type: bind
+        source: /dev/bus/usb
+        target: /dev/bus/usb
+        bind:
+          create_host_path: false
+    device_cgroup_rules:
+      - 'c 189:* rw'
+    group_add:
+      - ${DEVICEYARD_USB_GID:?Set the numeric host group that can access the authorized USB devices}
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+volumes:
+  data:
+  adb-identity:
