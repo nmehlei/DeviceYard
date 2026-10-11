@@ -21,10 +21,12 @@ runtime credentials. Public-registry publishing is not part of the pipeline.
 
 ## Physical-device check: pending
 
-Read-only SSH access to the existing Linux farm host failed host-key
-verification. No host keys were accepted or replaced, no host services were
-changed, and no phone was used. A trusted SSH endpoint and an authorized idle
-device are required before running the hardware acceptance checks:
+Read-only SSH access was subsequently established using the configured farm
+endpoint and existing SSH identity. The farm runs a native systemd service;
+Docker was not found on the host. Production stays native, as recorded in
+[release readiness](release-readiness.md). No host services were changed and
+no phone was used. An authorized device test window and a prepared Linux Docker
+host are still required before running the hardware acceptance checks:
 
 - discovery and USB debugging authorization;
 - unplug/replug without changing container configuration;
