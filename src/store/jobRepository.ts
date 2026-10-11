@@ -367,6 +367,7 @@ export class JobRepository {
       `UPDATE jobs SET status = 'running', started_at = ?, device_id = ?
         WHERE id = (SELECT id FROM jobs WHERE status = 'queued' ORDER BY created_at ASC, rowid ASC LIMIT 1)
           AND status = 'queued'
+          AND NOT EXISTS (SELECT 1 FROM maintenance_settings WHERE requested = 1)
           AND (? = 0 OR NOT EXISTS (SELECT 1 FROM jobs WHERE status = 'running'))
        RETURNING id`,
       startedAt,
@@ -410,6 +411,10 @@ export class JobRepository {
     const row = this.db.get<{ c: number }>("SELECT COUNT(*) AS c FROM jobs WHERE status = 'running'");
     return row?.c ?? 0;
   }
+
+  runningJobIds(): string[] { return this.db.all<{ id: string }>("SELECT id FROM jobs WHERE status='running'").map(row => row.id); }
+  isMaintenanceRequested(): boolean { return this.db.get<{ requested: number }>('SELECT requested FROM maintenance_settings WHERE singleton=1')?.requested === 1; }
+  setMaintenanceRequested(requested: boolean): void { this.db.run('UPDATE maintenance_settings SET requested=? WHERE singleton=1', requested ? 1 : 0); }
 
   /** The job claimNextQueued would take next - same ORDER BY, so the answer
    * never disagrees with what the scheduler actually does. Used to decide

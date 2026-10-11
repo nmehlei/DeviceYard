@@ -24,7 +24,7 @@ export class SingleDeviceScheduler implements SchedulerHandle {
     return null;
   }
   dispatch():void {
-    if (this.stopped) return;
+    if (this.stopped || this.deps.repo.isMaintenanceRequested()) return;
     const id = this.policy.snapshot().selectedDeviceId;
     if (!id || this.checking) return;
     if (!this.deps.isDeviceOnline) { this.claim(id); return; }
@@ -38,7 +38,7 @@ export class SingleDeviceScheduler implements SchedulerHandle {
     }).finally(() => { this.checking = false; });
   }
   private claim(id: string):void {
-    if (this.stopped) return;
+    if (this.stopped || this.deps.repo.isMaintenanceRequested()) return;
     const {repo,deviceRepo}=this.deps;
     if(repo.runningCount()>0) return;
     if(!id || !this.policy.canUse(id) || !deviceRepo.get(id)?.isActive) return;

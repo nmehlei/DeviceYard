@@ -262,9 +262,14 @@ const MIGRATIONS: string[] = [
   INSERT INTO edition_settings(singleton, community_device_id, selection_initialized)
     SELECT 1, CASE WHEN COUNT(*) = 1 THEN MIN(id) ELSE NULL END,
       CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END FROM devices WHERE is_active = 1;`,
+  `CREATE TABLE maintenance_settings (
+    singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+    requested INTEGER NOT NULL DEFAULT 0 CHECK(requested IN (0,1))
+  );
+  INSERT INTO maintenance_settings(singleton, requested) VALUES (1, 0);`,
 ];
 
-export const SCHEMA_VERSION = 12;
+export const SCHEMA_VERSION = 13;
 
 export function migrate(db: Db): number {
   const row = db.get<{ user_version: number }>("PRAGMA user_version");

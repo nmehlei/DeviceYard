@@ -171,6 +171,7 @@ test("a database already at version 6 migrates forward to upload_settings", () =
   db.exec("ALTER TABLE users DROP COLUMN email_verified_at");
   db.exec("DROP TABLE upload_settings");
   db.exec("DROP TABLE edition_settings");
+  db.exec("DROP TABLE maintenance_settings");
   db.exec("DROP INDEX IF EXISTS idx_jobs_status_created");
   db.exec("DROP TABLE IF EXISTS scheduler_settings");
   db.exec("ALTER TABLE jobs DROP COLUMN device_id");
@@ -218,6 +219,6 @@ test("migration 10 adds reset_policy defaulting to app-only", () => {
   expect(inserted?.reset_policy).toBe("app-only");
 });
 
-test("SCHEMA_VERSION is 12", () => {
-  expect(SCHEMA_VERSION).toBe(12);
+test("SCHEMA_VERSION is 13", () => {
+  expect(SCHEMA_VERSION).toBe(13);
 });

@@ -1,6 +1,7 @@
 import os from "os";
 import { randomUUID } from 'node:crypto';
 import { JobInputsStore } from './store/jobInputs';
+import { MaintenanceCoordinator } from './maintenance/coordinator';
 import fs from "fs";
 import path from "path";
 import express, {
@@ -152,6 +153,7 @@ export type InjectedScheduler = Pick<SchedulerHandle, "submit"> & Partial<Pick<S
  * frozen test untouched where an object return would not.
  */
 export type ServerHandle = Express & {
+  maintenance: MaintenanceCoordinator;
   scheduler: InjectedScheduler;
   control: ReturnType<typeof createControlUpgrade>;
 };
@@ -185,6 +187,8 @@ export function createServer(deps: ServerDeps): ServerHandle {
   const captureScreenshot = deps.captureScreenshot ?? captureDeviceScreenshot;
   const controlFrameIntervalMs = deps.controlFrameIntervalMs ?? 1000;
   const controlLeases = new ControlLeases();
+  const maintenance = new MaintenanceCoordinator(deps.repo);
+  app.maintenance = maintenance;
   const edition:EditionRuntime|undefined = deps.editionFactory?.({deviceRepo:deps.deviceRepo,repo:deps.repo,dataDir:deps.dataDir,
     occupied:():string[]=>[...controlLeases.occupiedDeviceIds(), ...deps.deviceRepo.list().filter(d=>controlHub.viewerCount(d.id)>0).map(d=>d.id)]});
 
@@ -267,7 +271,7 @@ export function createServer(deps: ServerDeps): ServerHandle {
       // finally still runs and the three map entries below are still released.
       // (Scheduler also guards the synchronous case; that guard stays, but it
       // cannot clean up state it does not know about.)
-      runJob: async ({ jobId, deviceId }) => {
+      runJob: ({ jobId, deviceId }) => maintenance.trackClaimedJob(jobId, async () => {
         // First thing, before any check that can throw: the scheduler has
         // already claimed this device (claimNextQueued writes status='running'
         // and device_id), so anyone watching it should see "a job is running"
@@ -323,7 +327,7 @@ export function createServer(deps: ServerDeps): ServerHandle {
           // The job is terminal by now, so the device reads as free again.
           controlHub.refreshModes();
         }
-      },
+      }),
       // The old queue.enqueue().catch() published to SSE when a job failed
       // before it could record anything itself; the scheduler marks the job
       // terminal, and this keeps a connected dashboard from waiting on a
@@ -340,6 +344,7 @@ export function createServer(deps: ServerDeps): ServerHandle {
       },
     });
   app.scheduler = scheduler;
+  maintenance.onChange(requested => { if (!requested) scheduler.dispatch?.(); });
 
   const controlHub = new ControlHub({
     isDeviceBusy: (deviceId) => deps.repo.runningDeviceIds().includes(deviceId),
