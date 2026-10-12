@@ -114,7 +114,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   hub.close();
-  control.close();
+  await control.close();
   await new Promise((resolve) => server.close(resolve));
   db.close();
   fs.rmSync(dir, { recursive: true, force: true });

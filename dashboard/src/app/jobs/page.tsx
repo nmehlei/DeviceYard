@@ -1,4 +1,5 @@
 "use client";
+import { MaintenanceCard } from '../../components/MaintenanceCard';
 import { useEffect, useState } from "react";
 import { useJobEvents } from "../../lib/useJobEvents";
 import { useDeviceLabels, jobDeviceDisplayName } from "../../lib/useDeviceLabels";
@@ -58,6 +59,7 @@ export default function JobPage() {
 
   return (
     <main className="job-page">
+      <MaintenanceCard readOnly />
       <a href="/history" className="job-back">← Job history</a>
       <section className="job-outcome" style={{ "--job-outcome-color": `var(--status-${outcome.tone})` } as React.CSSProperties} aria-label="Job result">
         <span className="job-outcome-icon" aria-hidden="true">{outcome.symbol}</span>

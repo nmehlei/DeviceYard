@@ -176,10 +176,11 @@ export class JobRepository {
     flows: string[],
     env?: Record<string, string>,
     appId?: string | null,
-    appVersion?: string | null
+    appVersion?: string | null,
+    preparedId?: string
   ): JobRow {
     const createdAt = this.now();
-    const id = `${createdAt}-${Math.random().toString(36).slice(2, 8)}`;
+    const id = preparedId ?? `${createdAt}-${Math.random().toString(36).slice(2, 8)}`;
     const envJson = env === undefined ? null : JSON.stringify(maskEnvForStorage(env));
 
     this.db.exec("BEGIN");
@@ -366,6 +367,7 @@ export class JobRepository {
       `UPDATE jobs SET status = 'running', started_at = ?, device_id = ?
         WHERE id = (SELECT id FROM jobs WHERE status = 'queued' ORDER BY created_at ASC, rowid ASC LIMIT 1)
           AND status = 'queued'
+          AND NOT EXISTS (SELECT 1 FROM maintenance_settings WHERE requested = 1)
           AND (? = 0 OR NOT EXISTS (SELECT 1 FROM jobs WHERE status = 'running'))
        RETURNING id`,
       startedAt,
@@ -410,6 +412,10 @@ export class JobRepository {
     return row?.c ?? 0;
   }
 
+  runningJobIds(): string[] { return this.db.all<{ id: string }>("SELECT id FROM jobs WHERE status='running'").map(row => row.id); }
+  isMaintenanceRequested(): boolean { return this.db.get<{ requested: number }>('SELECT requested FROM maintenance_settings WHERE singleton=1')?.requested === 1; }
+  setMaintenanceRequested(requested: boolean): void { this.db.run('UPDATE maintenance_settings SET requested=? WHERE singleton=1', requested ? 1 : 0); }
+
   /** The job claimNextQueued would take next - same ORDER BY, so the answer
    * never disagrees with what the scheduler actually does. Used to decide
    * whether a held device should start counting down its release. */
@@ -423,16 +429,8 @@ export class JobRepository {
    * Close jobs left mid-flight by a process that no longer exists. The update
    * timer restarts this service on every merge to main.
    *
-   * Cycle 10 narrowed this to `running` jobs ONLY, and a queued job is
-   * deliberately left alone HERE - but that is not the same as saying it will
-   * run. The queue is now the jobs table, so the ROW survives a restart; its
-   * PAYLOAD does not. The apk, the flows archive and the resolved app id live
-   * in server.ts's in-memory maps and in a temp upload directory, neither of
-   * which outlives the process. A job queued by a previous process is
-   * therefore closed at boot rather than dispatched - explicitly, by
-   * failQueuedWithoutPayload() below, which boot calls right after this
-   * method. What this method does not do is decide that: closing a
-   * queued job is the payload check's call, not this method's.
+   * Queued work is retained. Startup separately checks whether its durable
+   * inputs exist, including migration from versions with transient uploads.
    *
    * A closed job keeps its device_id, which is what makes "which phone was
    * this on when the deploy killed it" answerable at all.
@@ -460,35 +458,12 @@ export class JobRepository {
   }
 
   /**
-   * Close jobs left `queued` by a previous process. Their rows are durable;
-   * the uploads they refer to are not - the apk and flows archive live under
-   * UPLOAD_DIR (a temp directory the restart did not preserve) and the
-   * resolved app id lives in server.ts's in-memory maps. A queued row from a
-   * dead process therefore has nothing runnable behind it.
-   *
-   * BOOT ONLY, before the server accepts requests. While the service is live
-   * this method cannot distinguish "queued by a dead process" from "queued a
-   * second ago" - it would close jobs that are about to run perfectly well.
-   *
-   * This is the honest boundary of "durable queue" in cycle 10: a job queued
-   * by THIS process survives its own dispatch gaps and is no longer dropped
-   * when the queue is merely long. Surviving a restart end-to-end needs the
-   * uploads to be durable too, which is a bigger change than this cycle took
-   * on.
-   *
-   * ASSUMES A SINGLE INSTANCE PER DATA_DIR. "Nothing can claim these rows
-   * yet" is true only within the calling process - the caller runs this
-   * before its own Scheduler exists and before its own listener is up, so
-   * it cannot race itself. It says nothing about a second process pointed at
-   * the same DATA_DIR: an overlapping restart, a stray manual `node
-   * dist/index.js`, or a debug run against the live database will
-   * unconditionally close the OTHER, live instance's queued jobs out from
-   * under it. There is no lock file guarding this. Also not permanent: once
-   * uploads are durable, this function's job is done and it should be
-   * deleted rather than made smarter.
+   * Close only queued jobs whose payload did not survive (e.g. old versions).
+   * BOOT ONLY, before dispatch and submissions. Assumes one process per DATA_DIR.
+   * The default preserves legacy callers; production supplies the input store.
    */
-  failQueuedWithoutPayload(): number {
-    const stranded = this.db.all<{ id: string }>("SELECT id FROM jobs WHERE status = 'queued'");
+  failQueuedWithoutPayload(hasPayload: (id: string) => boolean = () => false): number {
+    const stranded = this.db.all<{ id: string }>("SELECT id FROM jobs WHERE status = 'queued'").filter(({ id }) => !hasPayload(id));
     if (stranded.length === 0) return 0;
 
     const finishedAt = this.now();

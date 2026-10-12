@@ -156,12 +156,11 @@ the field and the limit, and leaves nothing on disk.
   `src/store/jobRepository.ts`). An uncaught exception still takes the whole
   farm down, including CI, which is why the artifact and file routes are so
   careful with stream error handling.
-- **The job queue is durable only within a process; a restart still closes a
-  queued job.** A `queued` job's row survives the update timer's restart, but
-  the APK and flows archive it refers to live in a temp `UPLOAD_DIR` that
-  does not — so a restart still closes any job left `queued` rather than
-  resuming it. See `docs/open_issues.md`'s "Multi-device scheduling (cycle
-  10)" entry.
+- **Queued jobs survive restarts.** Accepted uploads and execution inputs are
+  stored privately under `DATA_DIR/job-inputs`. Back up this directory together
+  with the database. Use [maintenance mode](maintenance.md) to drain running
+  jobs before an upgrade and explicitly resume afterwards. Older releases'
+  transient uploads cannot be recovered retroactively.
 - **Flows get a 15-minute timeout** (`DEFAULT_TIMEOUT_MS`). Device status
   checks get their own 5-second budget instead, so a wedged device cannot
   hold an ops endpoint for a quarter of an hour.

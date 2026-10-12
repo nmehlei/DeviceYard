@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import type { MaintenanceCoordinator } from '../maintenance/coordinator';
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { type CommandRunner, getMaestroVersion } from "../maestro";
 import { log } from "../telemetry/log";
@@ -84,18 +85,24 @@ export function deviceRoutes(deps: {
   /** Whether anyone currently has this device's live view open. Optional so
    * existing callers and tests are unaffected; absent means "nobody". */
   hasLiveViewers?: (deviceId: string) => boolean;
+  maintenance?: MaintenanceCoordinator;
 }): Router {
   const router = Router();
   // Bind checks to the handlers so Express path aliases cannot bypass policy.
   const hardware = (handler: (req: Request, res: Response) => unknown) => async (req: Request, res: Response, next: NextFunction) => {
+    const releaseOperation = deps.maintenance?.acquire('operation');
+    if (deps.maintenance && !releaseOperation) {
+      res.status(503).json({ error: 'device access paused for maintenance', code: 'MAINTENANCE_MODE' }); return;
+    }
     const release = deps.policy?.reserve?.(req.params.id);
     if (deps.policy && (deps.policy.reserve ? !release : !deps.policy.canUse(req.params.id))) {
       res.status(409).json({ error: 'Select this device in Community or use Pro', code: 'PRO_REQUIRED' });
+      releaseOperation?.();
       return;
     }
     try { await handler(req, res); }
     catch (err) { next(err); }
-    finally { release?.(); }
+    finally { release?.(); releaseOperation?.(); }
   };
   const runner = deps.runner ?? deviceOpsRunner;
   const captureScreenshot = deps.captureScreenshot ?? captureDeviceScreenshot;
@@ -125,6 +132,14 @@ export function deviceRoutes(deps: {
   // the list's cost stays flat as more devices are added instead of growing
   // one adb spawn per row.
   router.get("/api/devices", async (_req, res) => {
+    const release = deps.maintenance?.acquire('operation');
+    if (deps.maintenance && !release) {
+      res.json({ devices: deps.deviceRepo.list().map(device => ({ ...device,
+        state: lastKnownState.get(device.id) ?? 'unknown',
+        ...(deps.policy ? { isAvailable: deps.policy.canUse(device.id), edition: deps.policy.snapshot().edition } : {}),
+      })), stale: true, maintenance: deps.maintenance.snapshot(), runnerVersion: readVersion(), artifactBytes: deps.repo.totalArtifactBytes() });
+      return;
+    }
     try {
       const known = deps.deviceRepo.list();
       const { stdout } = await runner("adb", ["devices"]);
@@ -175,7 +190,7 @@ export function deviceRoutes(deps: {
     } catch (err) {
       log.error("device list check failed", { err: String(err) });
       res.status(502).json({ error: "device status unavailable" });
-    }
+    } finally { release?.(); }
   });
 
   router.post("/api/devices", (req, res) => {

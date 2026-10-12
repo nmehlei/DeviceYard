@@ -55,3 +55,11 @@ export interface ControlStream {
 }
 
 export type StartControlStream = (deviceId: string) => Promise<ControlStream>;
+
+/** Startup failed after a device process may have been launched. */
+export class ControlStartupError extends Error {
+  constructor(message: string, readonly closed?: Promise<void>) {
+    super(message);
+    this.name = 'ControlStartupError';
+  }
+}

@@ -136,9 +136,8 @@ describe("the upload cap", () => {
 
     expect(res.status).toBe(202);
     expect(res.body.status).toBe("queued");
-    // Proves the emptiness assertion in the rejection test above is not
-    // vacuous: this is the directory uploads really land in.
-    expect(fs.readdirSync(uploadDir).length).toBeGreaterThan(0);
+    // Accepted payloads have moved from temporary uploads into durable storage.
+    expect(fs.existsSync(path.join(dataDir, 'job-inputs', res.body.id, 'app.apk'))).toBe(true);
   });
 
   it("enforces the 512 MB default when nothing has been configured", async () => {

@@ -1,4 +1,5 @@
 "use client";
+import { MaintenanceCard } from '../../components/MaintenanceCard';
 import { fetchDevices, fetchSession } from "../../lib/api";
 import {useEffect,useState} from 'react';
 import {EditionCard} from '../../components/EditionCard';
@@ -45,6 +46,7 @@ export default function DevicesPage() {
   }
 
   return <main className="ops-page">
+    <MaintenanceCard readOnly />
     <div className="ops-title"><div><h1>Devices</h1><p className="ops-muted">Connection status, scheduling, and device actions in one place.</p></div><AddDeviceForm onAdded={refresh} /></div>
     <EditionCard admin={admin} devices={devices} onChanged={refresh} />
     <section className="ops-stats" aria-label="Device summary">

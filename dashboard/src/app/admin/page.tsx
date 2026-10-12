@@ -12,6 +12,7 @@ import { Skeleton } from "../../components/Skeleton";
 import { SettingsLayout } from "../../components/SettingsLayout";
 import { BuildingIcon, PeopleIcon } from "../../components/icons";
 import { NotificationAdminCard } from "../../components/NotificationAdminCard";
+import { MaintenanceCard } from '../../components/MaintenanceCard';
 
 type Tab = "orgs" | "users" | "retention" | "uploads" | "concurrency" | "notifications";
 
@@ -69,7 +70,7 @@ export default function AdminPage() {
       <button role="tab" aria-selected={tab === "orgs"} onClick={() => setTab("orgs")}><BuildingIcon />Organizations</button>
       <button role="tab" aria-selected={tab === "users"} onClick={() => setTab("users")}><PeopleIcon />Users</button>
     </div>{tab === "orgs" ? <AdminOrgsCard /> : <AdminUsersCard />}</>}
-    {execution && <div className="space-y-5"><ConcurrencyCard /><RetentionCard /><UploadLimitCard /></div>}
+    {execution && <div className="space-y-5"><MaintenanceCard /><ConcurrencyCard /><RetentionCard /><UploadLimitCard /></div>}
     {tab === "notifications" && <NotificationAdminCard />}
   </SettingsLayout>;
 }

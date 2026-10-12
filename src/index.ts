@@ -28,6 +28,7 @@ import { NotificationStore } from "./notifications/store";
 import { NotificationWorker, startNotificationWorker } from "./notifications/worker";
 import { createSmtpTransport } from "./notifications/transport";
 import { DeviceHealthMonitor, startDeviceHealthMonitor } from "./notifications/health";
+import { JobInputsStore } from './store/jobInputs';
 
 export function bootstrap(env: NodeJS.ProcessEnv = process.env, editionFactory?:EditionFactory): {
   app: ServerHandle;
@@ -105,17 +106,14 @@ export function bootstrap(env: NodeJS.ProcessEnv = process.env, editionFactory?:
     log.info("closed jobs interrupted by restart", { count: closed });
   }
 
-  // A queued job now survives a restart as a ROW (see
-  // JobRepository.reconcileInterrupted), but its uploaded APK and flows
-  // archive do NOT: they live under UPLOAD_DIR, which is a temp directory,
-  // and the per-job state server.ts holds for them is in memory. So a job
-  // queued by the PREVIOUS process has a durable row and no runnable payload
-  // - it must be closed, not dispatched. This runs BEFORE the scheduler is
-  // built and dispatched below, so nothing can ever claim one of these rows.
-  const orphaned = repo.failQueuedWithoutPayload();
-  if (orphaned > 0) {
-    log.info("closed queued jobs whose uploads did not survive the restart", { count: orphaned });
-  }
+  // Old releases had transient uploads. Preserve new durable jobs and close
+  // only legacy/incomplete payloads before dispatch; cleanup runs at boot only.
+  const inputs = new JobInputsStore(config.dataDir);
+  repo.failQueuedWithoutPayload(id => inputs.hasPayload(id));
+  inputs.reconcile(id => {
+    const status = repo.getJob(id)?.status;
+    return status === 'queued' || status === 'running';
+  });
 
   // Best-effort purge of the whole debug/ scratch tree. This is safe only
   // because nothing is running yet at boot - runJob's own per-job cleanup
@@ -144,7 +142,6 @@ export function bootstrap(env: NodeJS.ProcessEnv = process.env, editionFactory?:
   // Force a fresh probe before previously queued health messages can be claimed.
   db.run("UPDATE notification_incidents SET last_observed_at=0");
   const stopWorker = startNotificationWorker(worker);
-  const stopHealth = notification.enabled ? startDeviceHealthMonitor(new DeviceHealthMonitor(notificationStore)) : () => {};
 
   const app = createServer({
     editionFactory,
@@ -162,14 +159,10 @@ export function bootstrap(env: NodeJS.ProcessEnv = process.env, editionFactory?:
     userTokenRepo,
     notifications: { store: notificationStore, config: notification },
   });
+  const stopHealth = notification.enabled
+    ? startDeviceHealthMonitor(new DeviceHealthMonitor(notificationStore, undefined, app.maintenance)) : () => {};
 
-  // Boot reconciliation above has already closed everything the dead process
-  // left behind, so whatever is still queued here was queued by THIS process
-  // (nothing can be, at this point) or will be by the routes once the
-  // listener is up. Dispatching now is what stops a restart from leaving the
-  // pool idle: without it the first claim would wait for the backstop tick.
-  // Order is load-bearing - dispatching before failQueuedWithoutPayload would
-  // hand the scheduler jobs whose uploads no longer exist.
+  // Recovered queued work resumes immediately unless maintenance is active.
   app.scheduler.dispatch?.();
 
   return {

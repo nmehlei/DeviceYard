@@ -1,4 +1,5 @@
 "use client";
+import { MaintenanceCard } from '../components/MaintenanceCard';
 import Link from "next/link";
 import { listJobOutcome } from "../lib/listJobOutcome";
 import { fetchJobs, fetchDevices } from "../lib/api";
@@ -23,6 +24,7 @@ export default function LandingPage() {
   const runCount = (number: number) => `${number} ${number === 1 ? "run" : "runs"}`;
   const unauthorized = devices.filter(device => device.state === "unauthorized");
   return <main className="ops-page ops-overview">
+    <MaintenanceCard readOnly />
     <div className="ops-title"><div><h1>Overview</h1><p className="ops-muted">Your latest runs and the devices behind them.</p></div><Link href="/cli" className="ops-action">Run from CLI</Link></div>
     {!loaded ? <div role="status" aria-label="Loading dashboard"><div className="ops-stats">{[0,1,2].map(i => <Skeleton key={i} className="h-24 w-full" />)}</div><Skeleton className="mb-8 h-80 w-full" /></div> : !jobs.length ? <section className="ops-box ops-empty"><h2>Your first run will show up here</h2><p className="ops-muted">Connect a device, then submit a Maestro flow from the CLI or MCP server.</p><div className="flex justify-center gap-3"><Link href="/devices" className="ops-action">Manage devices</Link><Link href="/cli" className="ops-action">Set up the CLI</Link></div></section> : <>
       <section className="ops-stats" aria-label={`Status of latest ${jobs.length} jobs`}>

@@ -1,4 +1,9 @@
 import os from "os";
+import { randomUUID } from 'node:crypto';
+import { JobInputsStore } from './store/jobInputs';
+import { MaintenanceCoordinator } from './maintenance/coordinator';
+import { trackControlStream } from './maintenance/control';
+import { maintenanceRoutes } from './api/maintenance';
 import fs from "fs";
 import path from "path";
 import express, {
@@ -150,6 +155,7 @@ export type InjectedScheduler = Pick<SchedulerHandle, "submit"> & Partial<Pick<S
  * frozen test untouched where an object return would not.
  */
 export type ServerHandle = Express & {
+  maintenance: MaintenanceCoordinator;
   scheduler: InjectedScheduler;
   control: ReturnType<typeof createControlUpgrade>;
 };
@@ -183,6 +189,8 @@ export function createServer(deps: ServerDeps): ServerHandle {
   const captureScreenshot = deps.captureScreenshot ?? captureDeviceScreenshot;
   const controlFrameIntervalMs = deps.controlFrameIntervalMs ?? 1000;
   const controlLeases = new ControlLeases();
+  const maintenance = new MaintenanceCoordinator(deps.repo);
+  app.maintenance = maintenance;
   const edition:EditionRuntime|undefined = deps.editionFactory?.({deviceRepo:deps.deviceRepo,repo:deps.repo,dataDir:deps.dataDir,
     occupied:():string[]=>[...controlLeases.occupiedDeviceIds(), ...deps.deviceRepo.list().filter(d=>controlHub.viewerCount(d.id)>0).map(d=>d.id)]});
 
@@ -222,15 +230,9 @@ export function createServer(deps: ServerDeps): ServerHandle {
   // matches the field.
   const uploadRoot = deps.uploadDir ?? os.tmpdir();
 
-  // Per-job values POST /run resolved before the job was queued, held until
-  // the scheduler claims it. In-memory on purpose: the uploads these point at
-  // live in a temp directory that does not survive a restart either, so
-  // persisting them would promise a durability the files do not have. A job
-  // whose entry is missing after a restart is exactly the interrupted job
-  // reconcileInterrupted closes at boot.
-  const appIdByJob = new Map<string, string>();
-  const uploadsByJob = new Map<string, { apkPath: string; flowsArchivePath: string }>();
-  const envByJob = new Map<string, Record<string, string>>();
+  // Payload publication precedes queue insertion, so every accepted job can
+  // execute after restart without its original multipart upload directory.
+  const jobInputs = new JobInputsStore(deps.dataDir);
   // The submitting request's trace context, captured at submit() time and
   // applied around the runJob invocation below. Dispatch happens from three
   // places - submit(), a completing job's .finally(), and the safety tick -
@@ -247,10 +249,10 @@ export function createServer(deps: ServerDeps): ServerHandle {
     deps.scheduler ??
     (edition?.createScheduler ?? ((options:SchedulerDeps) => new Scheduler(options)))({
       policy: edition?.policy,
-      isDeviceOnline: async id => {
+      isDeviceOnline: id => maintenance.run('operation', async () => {
         const result = await (deps.runner ?? deviceOpsRunner)('adb', ['-s', id, 'get-state']);
         return result.code === 0 && result.stdout.trim() === 'device';
-      },
+      }),
       repo: deps.repo,
       deviceRepo: deps.deviceRepo,
       // A test-constructed server must not own a live 10s timer. ~40 suites
@@ -271,7 +273,7 @@ export function createServer(deps: ServerDeps): ServerHandle {
       // finally still runs and the three map entries below are still released.
       // (Scheduler also guards the synchronous case; that guard stays, but it
       // cannot clean up state it does not know about.)
-      runJob: async ({ jobId, deviceId }) => {
+      runJob: ({ jobId, deviceId }) => maintenance.trackClaimedJob(jobId, async () => {
         // First thing, before any check that can throw: the scheduler has
         // already claimed this device (claimNextQueued writes status='running'
         // and device_id), so anyone watching it should see "a job is running"
@@ -279,14 +281,13 @@ export function createServer(deps: ServerDeps): ServerHandle {
         // which still occupies the device until the finally below.
         controlHub.refreshModes();
         try {
-          const appId = appIdByJob.get(jobId);
-          const uploads = uploadsByJob.get(jobId);
-          if (!appId || !uploads) {
+          const uploads = await jobInputs.load(jobId);
+          if (!uploads) {
             // A queued row whose in-memory context is gone - a job that
             // outlived the process that accepted it. There is nothing to run:
             // its apk is gone too. Throwing lets the scheduler close it as
             // failed with this reason rather than dereferencing undefined.
-            throw new Error("job context is no longer available - it was queued by a previous process");
+            throw new Error('job inputs unavailable');
           }
           // Applied around the call, not read fresh here: the context active
           // at this point belongs to whichever dispatch triggered this claim
@@ -301,7 +302,7 @@ export function createServer(deps: ServerDeps): ServerHandle {
             runJob({
               jobId,
               deviceId,
-              appId,
+              appId: uploads.appId,
               dataDir: deps.dataDir,
               apkPath: uploads.apkPath,
               flowsArchivePath: uploads.flowsArchivePath,
@@ -313,7 +314,7 @@ export function createServer(deps: ServerDeps): ServerHandle {
               extractDir: fs.mkdtempSync(path.join(uploadRoot, "mobile-farm-")),
               repo: deps.repo,
               runner: deps.runner,
-              env: envByJob.get(jobId),
+              env: uploads.env,
               // Read at dispatch, not at submit: an operator who changes a
               // device's policy expects the next job to honour it, not every
               // job queued since the change. A device removed between claim
@@ -323,14 +324,12 @@ export function createServer(deps: ServerDeps): ServerHandle {
             })
           );
         } finally {
-          appIdByJob.delete(jobId);
-          uploadsByJob.delete(jobId);
-          envByJob.delete(jobId);
+          await jobInputs.remove(jobId);
           traceCtxByJob.delete(jobId);
           // The job is terminal by now, so the device reads as free again.
           controlHub.refreshModes();
         }
-      },
+      }),
       // The old queue.enqueue().catch() published to SSE when a job failed
       // before it could record anything itself; the scheduler marks the job
       // terminal, and this keeps a connected dashboard from waiting on a
@@ -347,14 +346,15 @@ export function createServer(deps: ServerDeps): ServerHandle {
       },
     });
   app.scheduler = scheduler;
+  maintenance.onChange(requested => { if (!requested) scheduler.dispatch?.(); });
 
   const controlHub = new ControlHub({
     isDeviceBusy: (deviceId) => deps.repo.runningDeviceIds().includes(deviceId),
     onEvent: (deviceId, detail) => deps.deviceRepo.recordEvent(deviceId, "control", detail),
     createSource: (deviceId, onFrame, onError) =>
-      createFrameSource({ deviceId, intervalMs: controlFrameIntervalMs, capture: captureScreenshot, onFrame, onError }),
+      createFrameSource({ deviceId, intervalMs: controlFrameIntervalMs, capture: id => maintenance.run('operation', () => captureScreenshot(id)), onFrame, onError }),
     leases: controlLeases,
-    startControlStream: deps.startControlStream ?? startScrcpyControlStream,
+    startControlStream: trackControlStream(maintenance, deps.startControlStream ?? startScrcpyControlStream),
     hasWaitingJobFor: (deviceId) => {
       if (edition && !edition.policy.canUse(deviceId)) return undefined;
       const jobId = deps.repo.oldestQueuedJobId();
@@ -385,13 +385,15 @@ export function createServer(deps: ServerDeps): ServerHandle {
   const controlTick = setInterval(() => controlHub.tick(Date.now()), 1000);
   controlTick.unref();
 
-  const upgrade = createControlUpgrade({ userRepo: deps.userRepo, deviceRepo: deps.deviceRepo, sessionSecret: deps.sessionSecret, hub: controlHub, policy:edition?.policy });
+  const stopMaintenanceDrain = maintenance.onChange(requested => { if (requested) controlHub.close(); });
+  const upgrade = createControlUpgrade({ userRepo: deps.userRepo, deviceRepo: deps.deviceRepo, sessionSecret: deps.sessionSecret, hub: controlHub, policy:edition?.policy, maintenance });
   app.control = {
     handleUpgrade: upgrade.handleUpgrade,
     close: () => {
+      stopMaintenanceDrain();
       clearInterval(controlTick);
       controlHub.close();
-      upgrade.close();
+      return upgrade.close();
     },
   };
 
@@ -529,6 +531,7 @@ export function createServer(deps: ServerDeps): ServerHandle {
       // still-synchronous statement in this same try (e.g. res.status(202))
       // were to unexpectedly throw.
       let filesOwnedByJob = false;
+      let preparedId: string | undefined;
       try {
         const apkFile = files?.apk?.[0];
         const flowsArchiveFile = files?.flowsArchive?.[0];
@@ -601,7 +604,9 @@ export function createServer(deps: ServerDeps): ServerHandle {
           return;
         }
 
-        const job = deps.repo.createJob(req.org as string, flows as string[], env, appId, appVersion);
+        preparedId = randomUUID();
+        await jobInputs.save(preparedId, { appId, apkPath: apkFile.path, flowsArchivePath: flowsArchiveFile.path, env });
+        const job = deps.repo.createJob(req.org as string, flows as string[], env, appId, appVersion, preparedId);
         recordJobSubmitted(req.org as string);
         filesOwnedByJob = true;
 
@@ -609,12 +614,7 @@ export function createServer(deps: ServerDeps): ServerHandle {
         // where the scheduler's runJob closure can find it again. The device
         // is deliberately NOT decided here: binding a job to a device at
         // submit time would park it behind one device while another sat idle.
-        appIdByJob.set(job.id, appId);
-        uploadsByJob.set(job.id, {
-          apkPath: apkFile.path,
-          flowsArchivePath: flowsArchiveFile.path,
-        });
-        if (env) envByJob.set(job.id, env);
+        cleanupUploadedFiles(files);
         // Captured here - synchronously, in this request's own async
         // context - so the job's span is a child of THIS "POST /run" span
         // regardless of which dispatch path later claims it.
@@ -650,6 +650,7 @@ export function createServer(deps: ServerDeps): ServerHandle {
         });
         if (!filesOwnedByJob) {
           cleanupUploadedFiles(files);
+          if (preparedId) await jobInputs.remove(preparedId).catch(() => log.error('failed to remove unqueued inputs'));
         }
         if (!res.headersSent) {
           res.status(500).json({ error: "internal error" });
@@ -801,11 +802,13 @@ export function createServer(deps: ServerDeps): ServerHandle {
   // Dashboard JSON API: mounted behind the same `auth` guard as /run and
   // /jobs above, so every route here is org-scoped the same way.
   app.use(auth, jobRoutes({ repo: deps.repo, events, dataDir: deps.dataDir }));
+  app.use(auth, maintenanceRoutes(maintenance));
   app.use(auth, fileRoutes({ repo: deps.repo, dataDir: deps.dataDir }));
   if (edition) app.use(auth, editionRoutes({policy:edition.policy,deviceRepo:deps.deviceRepo,dispatch:()=>app.scheduler.dispatch?.(),blockedReason:()=>app.scheduler.blockedReason?.() ?? null}));
   app.use(
     auth,
     deviceRoutes({
+      maintenance,
       policy: edition?.policy,
       repo: deps.repo,
       deviceRepo: deps.deviceRepo,

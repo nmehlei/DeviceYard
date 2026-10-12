@@ -480,6 +480,9 @@ export class ControlHub {
       for (const viewer of state.viewers) {
         try { viewer.close(); } catch { /* already gone */ }
       }
+      // Pending starts must not restart capture from this retired state when
+      // they fail later, including after a maintenance pause has been resumed.
+      state.viewers.clear();
     }
     this.devices.clear();
   }

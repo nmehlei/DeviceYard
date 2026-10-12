@@ -119,7 +119,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  app.control.close(); // stops the control tick and releases any leases synchronously
+  await app.control.close(); // wait for socket teardown before closing the database
   await new Promise((resolve) => server.close(resolve));
   db.close();
   fs.rmSync(dir, { recursive: true, force: true });
