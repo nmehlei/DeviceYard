@@ -65,6 +65,9 @@ function op(
 }
 
 const schemas: Record<string, Schema> = {
+  MaintenanceStatus: object({ requested: { type: 'boolean' }, state: { type: 'string', enum: ['normal', 'draining', 'ready'] },
+    runningJobs: { type: 'integer', minimum: 0 }, activeOperations: { type: 'integer', minimum: 0 }, activeStreams: { type: 'integer', minimum: 0 } },
+    ['requested', 'state', 'runningJobs', 'activeOperations', 'activeStreams']),
   Error: object({ error: { type: "string" } }, ["error"]),
   Ok: object({ ok: { type: "boolean", const: true } }, ["ok"]),
   Org: object({
@@ -218,6 +221,8 @@ add("/api/admin/retention", OpenAPIV3_1.HttpMethods.GET, op("getRetentionSetting
 add("/api/admin/retention", OpenAPIV3_1.HttpMethods.PUT, op("updateRetentionSettings", "Administration", "Replace retention settings", { 200: json({ type: "object", additionalProperties: true }), ...errorResponses(400, 401, 403) }, { requestBody: body(object({ maxAgeDays: { type: ["integer", "null"], minimum: 0 }, maxTotalBytes: { type: ["integer", "null"], minimum: 0 }, maxJobs: { type: ["integer", "null"], minimum: 0 } }, ["maxAgeDays", "maxTotalBytes", "maxJobs"])) }));
 add("/api/admin/upload", OpenAPIV3_1.HttpMethods.GET, op("getUploadSettings", "Administration", "Get upload settings", { 200: json({ type: "object", additionalProperties: true }), ...errorResponses(401, 403) }));
 add("/api/admin/upload", OpenAPIV3_1.HttpMethods.PUT, op("updateUploadSettings", "Administration", "Replace upload settings", { 200: json({ type: "object", additionalProperties: true }), ...errorResponses(400, 401, 403) }, { requestBody: body(object({ maxUploadBytes: nullablePositiveInteger }, ["maxUploadBytes"])) }));
+add('/api/maintenance', OpenAPIV3_1.HttpMethods.GET, op('getMaintenance', 'Administration', 'Get maintenance status', { 200: json(ref('MaintenanceStatus')), ...errorResponses(401) }));
+add('/api/admin/maintenance', OpenAPIV3_1.HttpMethods.PUT, op('setMaintenance', 'Administration', 'Enable or resume maintenance (administrator only)', { 200: json(ref('MaintenanceStatus')), ...errorResponses(400, 401, 403) }, { requestBody: body(object({ requested: { type: 'boolean' } }, ['requested'])) }));
 add("/api/admin/scheduler", OpenAPIV3_1.HttpMethods.GET, op("getSchedulerSettings", "Administration", "Get scheduler settings", { 200: json(object({ maxConcurrentJobs: nullablePositiveInteger }, ["maxConcurrentJobs"])), ...errorResponses(401, 403) }));
 add("/api/admin/scheduler", OpenAPIV3_1.HttpMethods.PUT, op("updateSchedulerSettings", "Administration", "Replace scheduler settings", { 200: json(object({ maxConcurrentJobs: nullablePositiveInteger }, ["maxConcurrentJobs"])), ...errorResponses(400, 401, 403) }, { requestBody: body(object({ maxConcurrentJobs: nullablePositiveInteger }, ["maxConcurrentJobs"])) }));
 

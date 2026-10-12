@@ -6,6 +6,25 @@
 import { getActiveOrgId, setActiveOrgId, clearActiveOrgId, orgScopedFetch } from "./activeOrg";
 
 export type JobStatus = "queued" | "running" | "done" | "failed";
+export interface MaintenanceStatus {
+  requested: boolean;
+  state: 'normal' | 'draining' | 'ready';
+  runningJobs: number;
+  activeOperations: number;
+  activeStreams: number;
+}
+export async function fetchMaintenance(fetchImpl: typeof fetch = fetch): Promise<MaintenanceStatus> {
+  const response = await fetchImpl('/api/maintenance', { credentials: 'same-origin', cache: 'no-store' });
+  if (!response.ok) throw await apiErrorFrom(response, 'Could not refresh maintenance status');
+  return parseJson<MaintenanceStatus>(response);
+}
+export async function setMaintenance(requested: boolean, fetchImpl: typeof fetch = fetch): Promise<MaintenanceStatus> {
+  const response = await fetchImpl('/api/admin/maintenance', {
+    method: 'PUT', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ requested }),
+  });
+  if (!response.ok) throw await apiErrorFrom(response, 'Could not change maintenance mode');
+  return parseJson<MaintenanceStatus>(response);
+}
 export type StepStatus = "queued" | "running" | "passed" | "failed" | "skipped";
 export type StepKind = "setup" | "flow";
 export type ArtifactKind = "screenshot" | "recording" | "hierarchy" | "stdout" | "stderr" | "log";

@@ -35,6 +35,9 @@ test('a queued upload executes after the server and database reopen without its 
     resolveAppId: async () => ({ appId: 'example.app', appVersion: null }) };
   let app = createServer({ ...stores, ...common, scheduler: { submit: () => {} } });
   try {
+    expect((await request(app).get('/api/maintenance')).status).toBe(401);
+    expect((await request(app).put('/api/admin/maintenance').send({ requested: true })).status).toBe(401);
+    app.maintenance.setRequested(true);
     const submitted = await request(app).post('/run').set('Authorization', 'Bearer queue-test-token')
       .field('flows', '["test"]').field('env', '{"E2E_LABEL":"restart-value"}')
       .attach('apk', Buffer.from('apk-content'), 'test.apk').attach('flowsArchive', archive);
@@ -51,6 +54,10 @@ test('a queued upload executes after the server and database reopen without its 
     };
     app = createServer({ ...stores, ...common, runner });
     app.scheduler.dispatch?.();
+    await new Promise(resolve => setImmediate(resolve));
+    expect(stores.repo.getJob(submitted.body.id)?.status).toBe('queued');
+    expect(app.maintenance.snapshot().state).toBe('ready');
+    app.maintenance.setRequested(false);
     const deadline = Date.now() + 10000;
     while (Date.now() < deadline && ['queued', 'running'].includes(stores.repo.getJob(submitted.body.id)!.status))
       await new Promise(resolve => setTimeout(resolve, 20));

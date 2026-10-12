@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { JobInputsStore } from './store/jobInputs';
 import { MaintenanceCoordinator } from './maintenance/coordinator';
 import { trackControlStream } from './maintenance/control';
+import { maintenanceRoutes } from './api/maintenance';
 import fs from "fs";
 import path from "path";
 import express, {
@@ -801,6 +802,7 @@ export function createServer(deps: ServerDeps): ServerHandle {
   // Dashboard JSON API: mounted behind the same `auth` guard as /run and
   // /jobs above, so every route here is org-scoped the same way.
   app.use(auth, jobRoutes({ repo: deps.repo, events, dataDir: deps.dataDir }));
+  app.use(auth, maintenanceRoutes(maintenance));
   app.use(auth, fileRoutes({ repo: deps.repo, dataDir: deps.dataDir }));
   if (edition) app.use(auth, editionRoutes({policy:edition.policy,deviceRepo:deps.deviceRepo,dispatch:()=>app.scheduler.dispatch?.(),blockedReason:()=>app.scheduler.blockedReason?.() ?? null}));
   app.use(
