@@ -44,6 +44,11 @@ It does not stop a host ADB daemon or other applications. The toggle never
 kills shared host services. A separate hardware handover, if needed, is an
 operator action; routine maintenance does not require changing USB ownership.
 
+If a scrcpy startup fails after launching a process and its exit cannot be
+confirmed, maintenance stays **Draining**. Inspect and stop the orphaned scrcpy
+process on the affected device before restarting DeviceYard. Restarting the
+service alone clears its in-memory tracking but does not prove device cleanup.
+
 Device-access coverage:
 
 | Entry point | Maintenance behavior |

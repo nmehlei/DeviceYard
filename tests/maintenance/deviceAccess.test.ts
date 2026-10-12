@@ -13,6 +13,7 @@ import { NotificationStore } from '../../src/notifications/store';
 import { DeviceHealthMonitor } from '../../src/notifications/health';
 import { trackControlStream } from '../../src/maintenance/control';
 import { fakeStream } from '../helpers/fakeControlStream';
+import { ControlStartupError } from '../../src/control/controlStream';
 
 let dir: string, db: Db, repo: JobRepository, devices: DeviceRepository, gate: MaintenanceCoordinator;
 beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'device-access-')); db = openDatabase(path.join(dir, 'db')); migrate(db); repo = new JobRepository(db); devices = new DeviceRepository(db); devices.seedIfEmpty('phone'); gate = new MaintenanceCoordinator(repo); });
@@ -61,4 +62,29 @@ test('a late stream stays counted until its process exits even if close returns 
   expect(gate.snapshot().state).toBe('draining'); fake.die();
   await new Promise(resolve => setImmediate(resolve)); expect(gate.snapshot().state).toBe('ready');
   await expect(start('phone')).rejects.toMatchObject({ code: 'MAINTENANCE_MODE' });
+});
+
+test('failed startup with an unconfirmed device process cannot report ready', async () => {
+  const start = trackControlStream(gate, async () => { throw new ControlStartupError('unconfirmed exit'); });
+  await expect(start('phone')).rejects.toThrow('unconfirmed exit');
+  gate.setRequested(true);
+  expect(gate.snapshot()).toMatchObject({ state: 'draining', activeStreams: 1 });
+});
+
+test('failed startup releases its lease only after confirmed process exit', async () => {
+  let exited!: () => void;
+  const closed = new Promise<void>(resolve => { exited = resolve; });
+  const start = trackControlStream(gate, async () => { throw new ControlStartupError('failed handshake', closed); });
+  await expect(start('phone')).rejects.toThrow('failed handshake');
+  gate.setRequested(true);
+  expect(gate.snapshot().state).toBe('draining');
+  exited(); await new Promise(resolve => setImmediate(resolve));
+  expect(gate.snapshot()).toMatchObject({ state: 'ready', activeStreams: 0 });
+});
+
+test('failure before launching a device process releases its lease', async () => {
+  const start = trackControlStream(gate, async () => { throw new Error('device unavailable'); });
+  await expect(start('phone')).rejects.toThrow('device unavailable');
+  gate.setRequested(true);
+  expect(gate.snapshot()).toMatchObject({ state: 'ready', activeStreams: 0 });
 });

@@ -1,5 +1,5 @@
 import { log } from "../telemetry/log";
-import type { ControlPacket, ControlStream, StartControlStream } from "./controlStream";
+import { ControlStartupError, type ControlPacket, type ControlStream, type StartControlStream } from "./controlStream";
 import { SCRCPY_SERVER_DEVICE_PATH, readVerifiedScrcpyServer } from "./scrcpyServer";
 
 /**
@@ -68,7 +68,7 @@ export const startScrcpyControlStream: StartControlStream = async (deviceId) => 
         deviceId,
         startError: String(startError),
       });
-      throw startError;
+      throw new ControlStartupError('scrcpy startup failed; process exit is unconfirmed');
     }
     try {
       await noneProtocol.spawnWaitText(["pkill", "-f", "scrcpy-server"]);
@@ -78,13 +78,13 @@ export const startScrcpyControlStream: StartControlStream = async (deviceId) => 
         startError: String(startError),
         cleanupError: String(cleanupError),
       });
-      throw startError;
+      throw new ControlStartupError('scrcpy startup failed; process exit is unconfirmed');
     }
     log.error("scrcpy start failed; sent best-effort pkill for orphaned server", {
       deviceId,
       startError: String(startError),
     });
-    throw startError;
+    throw new ControlStartupError('scrcpy startup failed; process exit is unconfirmed');
   }
 
   // The server's log must be drained or its process can block on a full pipe.
@@ -97,14 +97,22 @@ export const startScrcpyControlStream: StartControlStream = async (deviceId) => 
     }
   })().catch(() => {});
 
-  const video = await client.videoStream;
+  const video = await (async () => {
+  try {
+    const video = await client.videoStream;
+    if (!video?.metadata.width || !video.metadata.height || !client.controller) {
+      throw new Error('scrcpy video or control channel is unavailable');
+    }
+    return video;
+  } catch {
+    // Keep the process-exit promise even if close itself fails or returns early.
+    void client.close().catch(() => {});
+    throw new ControlStartupError('scrcpy startup failed after launching the server', client.exited);
+  }
+  })();
   // metadata, NOT video.width/height: the getters measured 0x0 at this point.
   const width = video.metadata.width;
   const height = video.metadata.height;
-  if (!width || !height) {
-    await client.close();
-    throw new Error(`scrcpy reported no video size for ${deviceId}`);
-  }
 
   // One reader, one loop, no timeouts: a read that loses a race against a timer
   // still consumes the next packet when it resolves.
@@ -123,10 +131,6 @@ export const startScrcpyControlStream: StartControlStream = async (deviceId) => 
   }
 
   const controller = client.controller;
-  if (!controller) {
-    await client.close();
-    throw new Error(`scrcpy started without a control channel for ${deviceId}`);
-  }
 
   const stream: ControlStream = {
     width,

@@ -17,7 +17,7 @@ export class MaintenanceCoordinator {
   private streams = 0;
   private jobs = new Set<string>();
   private listeners = new Set<(requested: boolean) => void>();
-  private lastState?: MaintenanceStatus['state'];
+  private lastState: MaintenanceStatus['state'] = 'normal';
   constructor(private readonly repo: JobRepository) {}
   get requested(): boolean { return this.repo.isMaintenanceRequested(); }
   onChange(listener: (requested: boolean) => void): () => void {

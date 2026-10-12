@@ -82,13 +82,23 @@ async function main() {
     assert.equal(response.status,200);
     assert.equal(edition.edition,'community');
     assert.equal(edition.multiDevice,false);
+    const paused = await fetch(base+'/api/admin/maintenance', {method:'PUT',headers:{cookie,'Content-Type':'application/json'},body:JSON.stringify({requested:true}),signal:AbortSignal.timeout(10000)});
+    assert.equal(paused.status,200,'Admin must be able to enable maintenance');
+    assert.equal((await paused.json()).state,'ready');
     const publicIdentity = await identity();
     assert.match(publicIdentity,/^[a-f0-9]{64}\s/,'ADB public identity must exist');
     stage = 'graceful stop and volume persistence';
     await stop();
     // A new bootstrap password must not replace the persisted user's password.
     writeEnv({...env, ADMIN_PASSWORD:randomBytes(24).toString('hex')});
-    await login(await start());
+    const restarted = await start();
+    const renewedCookie = await login(restarted);
+    const maintenance = await fetch(restarted+'/api/maintenance',{headers:{cookie:renewedCookie},signal:AbortSignal.timeout(10000)});
+    assert.equal(maintenance.status,200);
+    assert.equal((await maintenance.json()).state,'ready','Maintenance must survive container recreation');
+    const resumed = await fetch(restarted+'/api/admin/maintenance',{method:'PUT',headers:{cookie:renewedCookie,'Content-Type':'application/json'},body:JSON.stringify({requested:false}),signal:AbortSignal.timeout(10000)});
+    assert.equal(resumed.status,200);
+    assert.equal((await resumed.json()).state,'normal');
     assert.equal(await identity(),publicIdentity,'ADB authorization identity must persist');
     await stop();
     stage = 'invalid configuration';

@@ -1,4 +1,4 @@
-import type { StartControlStream } from '../control/controlStream';
+import { ControlStartupError, type StartControlStream } from '../control/controlStream';
 import { MaintenanceCoordinator, MaintenanceError } from './coordinator';
 import { log } from '../telemetry/log';
 
@@ -8,7 +8,14 @@ export function trackControlStream(gate: MaintenanceCoordinator, start: StartCon
     const release = gate.acquire('stream');
     if (!release) throw new MaintenanceError();
     let stream;
-    try { stream = await start(id); } catch (err) { release(); throw err; }
+    try { stream = await start(id); } catch (err) {
+      if (err instanceof ControlStartupError) {
+        // A kill request is not proof that an orphaned process has exited.
+        if (err.closed) void err.closed.then(release, () => log.error('failed control startup exit could not be confirmed', { deviceId: id }));
+        else log.error('failed control startup requires device cleanup before restart', { deviceId: id });
+      } else release();
+      throw err;
+    }
     // Only confirmed process exit releases the lease. A failed teardown must
     // remain visibly draining, not falsely advertise readiness.
     void stream.closed.then(release, () => log.error('control stream exit could not be confirmed', { deviceId: id }));

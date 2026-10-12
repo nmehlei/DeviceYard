@@ -152,7 +152,7 @@ test("a queued job waits for a device under control, then runs once control ends
   expect(repo.getJob(job.id)?.status).toBe("queued");
 
   ws.send(JSON.stringify({ type: "release-control" }));
-  await waitFor(() => repo.getJob(job.id)?.status !== "queued", "the job to be claimed");
+  await waitFor(() => repo.getJob(job.id)?.status === "failed", "the job without inputs to finish");
 
   ws.close();
 });
