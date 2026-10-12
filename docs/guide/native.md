@@ -33,3 +33,19 @@ review, Pro activation, promotion authorization and migration rehearsal remain
 release gates. The runtime archive is not a corresponding-source distribution.
 See the [migration design](../superpowers/specs/2026-10-12-native-release-migration-design.md)
 and [maintenance guide](maintenance.md).
+
+## Reviewed promotion (not part of CI)
+
+After separate approval of the exact archive, notices/source correspondence and
+deployment plan, `ci/native/promote.cjs` can publish into an existing authorized
+storage container. It never creates resources or changes the legacy marker.
+The command requires an explicit `--reviewed-and-approved` flag; Pro also needs
+every bundled verification-key ID named as an additional reviewed argument.
+An empty or unreviewed Pro key set is rejected. The account identity must already
+have the reviewed storage permission. This command has not been run as part of
+the migration preparation.
+
+The target is `native/<edition>/linux-x64/`: immutable archive first, then
+`latest.json`. A failed promotion after archive upload leaves the old marker
+intact; inspect that state before retrying, as existing archives are not
+overwritten. Keep the old artifact and matching data backup for rollback.
