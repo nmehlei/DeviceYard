@@ -42,7 +42,7 @@ test('a queued upload executes after the server and database reopen without its 
       .field('flows', '["test"]').field('env', '{"E2E_LABEL":"restart-value"}')
       .attach('apk', Buffer.from('apk-content'), 'test.apk').attach('flowsArchive', archive);
     expect(submitted.status).toBe(202);
-    app.control.close(); db.close();
+    await app.control.close(); db.close();
     fs.rmSync(uploadDir, { recursive: true }); fs.mkdirSync(uploadDir);
     db = openDatabase(path.join(dataDir, 'farm.db')); migrate(db); stores = deps();
     let installed = false; let receivedEnv = false;
@@ -63,5 +63,5 @@ test('a queued upload executes after the server and database reopen without its 
       await new Promise(resolve => setTimeout(resolve, 20));
     expect(stores.repo.getJob(submitted.body.id)?.status).toBe('done');
     expect(installed).toBe(true); expect(receivedEnv).toBe(true);
-  } finally { app.scheduler.stop?.(); app.control.close(); db.close(); fs.rmSync(dir, { recursive: true, force: true }); }
+  } finally { app.scheduler.stop?.(); await app.control.close(); db.close(); fs.rmSync(dir, { recursive: true, force: true }); }
 }, 30000);

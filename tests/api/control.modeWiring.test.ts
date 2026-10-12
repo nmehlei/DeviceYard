@@ -94,7 +94,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  app.control.close();
+  await app.control.close();
   app.scheduler.stop?.();
   await new Promise((resolve) => server.close(resolve));
   db.close();
