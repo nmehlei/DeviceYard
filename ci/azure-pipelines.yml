@@ -27,6 +27,19 @@ steps:
     displayName: Build Community and verify runtime assets
   - script: node ci/smoke.cjs
     displayName: Verify compiled Community startup
+  - script: node --test ci/native/package.test.cjs
+    displayName: Test native packaging boundaries
+  - script: node ci/notices.cjs
+    displayName: Collect release-platform dependency notices
+  - script: node ci/native/package.cjs "$(Build.ArtifactStagingDirectory)/native" "0.0.0-ci.$(Build.BuildId)"
+    displayName: Package native Community candidate
+  - script: node ci/native/smoke.cjs "$(Build.ArtifactStagingDirectory)/native/deviceyard-community-0.0.0-ci.$(Build.BuildId)-linux-x64.tar.gz.json"
+    displayName: Verify extracted native Community archive
+  - task: PublishPipelineArtifact@1
+    displayName: Retain private native candidate (no release promotion)
+    inputs:
+      targetPath: '$(Build.ArtifactStagingDirectory)/native'
+      artifact: native-community-linux-x64
   - script: docker build --platform linux/amd64 --build-arg SOURCE_REVISION=$(Build.SourceVersion) -f ci/container/Dockerfile -t deviceyard-community:test .
     displayName: Build Community container (no publication)
   - script: node ci/container/smoke.cjs deviceyard-community:test

@@ -10,6 +10,7 @@ import { migrate } from "../../src/db/migrations";
 import { JobRepository } from "../../src/store/jobRepository";
 import { DeviceRepository } from "../../src/store/deviceRepository";
 import { ControlLeases } from "../../src/control/leases";
+import { unknownSetupChecks } from "../../src/deviceSetupChecks";
 
 const DEVICE_ID = "RF8M40H8RFP";
 
@@ -157,6 +158,9 @@ test("GET /api/devices reports live state, caches the model, and reports version
           isActive: true,
           state: "device",
           resetPolicy: "app-only",
+          // This fake answers the probe with a bare model and no check
+          // markers, so every check is unknown - never a warning.
+          setupChecks: unknownSetupChecks(),
         },
       ]);
       expect(deviceRepo.get(DEVICE_ID)?.model).toBe("Pixel 7");
@@ -453,4 +457,13 @@ test("GET /api/devices/:id/screenshot surfaces a capture failure as 502", async 
 test("GET /api/devices/:id/screenshot on an unknown device returns 404", async () => {
   const res = await request(app()).get("/api/devices/unknown/screenshot");
   expect(res.status).toBe(404);
+});
+
+test("the add-device instructions tell the operator to disable both expiring/blocking settings", async () => {
+  const res = await request(app()).post("/api/devices").send({ id: "new-device" });
+
+  expect(res.status).toBe(201);
+  const text = res.body.setupInstructions.join("\n");
+  expect(text).toMatch(/Disable adb authorization timeout/);
+  expect(text).toMatch(/Verify apps over USB/);
 });

@@ -11,6 +11,7 @@ import type { ControlLeases } from "../control/leases";
 import { isResetPolicy, RESET_POLICIES } from "../store/rows";
 import type { UserRepository } from "../store/userRepository";
 import type { DevicePolicy } from "../editions/policy";
+import { buildProbeArgs, checkResult, findSetupCheck, parseProbeOutput, unknownSetupChecks } from "../deviceSetupChecks";
 
 export type { ScreenshotCapturer };
 
@@ -40,10 +41,21 @@ const SETUP_INSTRUCTIONS: string[] = [
   "Connect the device to the farm host over USB.",
   "On the device, enable Developer Options and turn on USB debugging.",
   'Run "adb devices" on the farm host and accept the USB debugging prompt on the device screen.',
+  'In Developer Options, turn ON "Disable adb authorization timeout" and turn OFF "Verify apps over USB" - otherwise the device forgets this host after 7 days and Play Protect can hang installs. The device card warns about both and an admin can fix them with one click.',
   'Confirm the serial "adb devices" prints matches the id you register here - that serial is this device\'s permanent identity.',
   'Once "adb devices" shows it as authorized, use "Enable" on its card to add it to the pool of devices jobs run on.',
 ];
 
+/** `adb devices` output -> serial => state ("device", "unauthorized", ...). */
+function parseAdbDevices(stdout: string): Map<string, string> {
+  const stateById = new Map<string, string>();
+  for (const line of stdout.split("\n").map((l) => l.trim())) {
+    if (!line || line.startsWith("List of devices attached")) continue;
+    const [id, state] = line.split(/\s+/);
+    if (id) stateById.set(id, state ?? "unknown");
+  }
+  return stateById;
+}
 
 /**
  * Who to credit in the device event log.
@@ -135,7 +147,7 @@ export function deviceRoutes(deps: {
     const release = deps.maintenance?.acquire('operation');
     if (deps.maintenance && !release) {
       res.json({ devices: deps.deviceRepo.list().map(device => ({ ...device,
-        state: lastKnownState.get(device.id) ?? 'unknown',
+        state: lastKnownState.get(device.id) ?? 'unknown', setupChecks: unknownSetupChecks(),
         ...(deps.policy ? { isAvailable: deps.policy.canUse(device.id), edition: deps.policy.snapshot().edition } : {}),
       })), stale: true, maintenance: deps.maintenance.snapshot(), runnerVersion: readVersion(), artifactBytes: deps.repo.totalArtifactBytes() });
       return;
@@ -143,28 +155,31 @@ export function deviceRoutes(deps: {
     try {
       const known = deps.deviceRepo.list();
       const { stdout } = await runner("adb", ["devices"]);
-      const liveStateById = new Map<string, string>();
-      for (const line of stdout.split("\n").map((l) => l.trim())) {
-        if (!line || line.startsWith("List of devices attached")) continue;
-        const [id, state] = line.split(/\s+/);
-        if (id) liveStateById.set(id, state ?? "unknown");
-      }
+      const liveStateById = parseAdbDevices(stdout);
 
       const devices = await Promise.all(
         known.map(async (device) => {
           const state = liveStateById.get(device.id) ?? "offline";
 
           let model = device.model;
+          // Unknown until read: an offline/unauthorized device cannot be
+          // asked, and "could not read" must never render as a warning.
+          let setupChecks = unknownSetupChecks();
           if (state === "device") {
             try {
-              const modelResult = await runner("adb", ["-s", device.id, "shell", "getprop", "ro.product.model"]);
-              const trimmed = modelResult.stdout.trim();
-              if (trimmed && trimmed !== device.model) {
-                model = trimmed;
-                deps.deviceRepo.updateModel(device.id, trimmed);
+              // One shell call for the model AND every setup check - it
+              // replaces the old bare getprop, so the poll's adb cost per
+              // device is unchanged.
+              const probe = await runner("adb", ["-s", device.id, "shell", ...buildProbeArgs()]);
+              const parsed = parseProbeOutput(probe.stdout);
+              setupChecks = parsed.checks;
+              if (parsed.model && parsed.model !== device.model) {
+                model = parsed.model;
+                deps.deviceRepo.updateModel(device.id, parsed.model);
               }
             } catch {
-              // Best-effort: a failed getprop just leaves the cached model as-is.
+              // Best-effort: a failed probe leaves the cached model and
+              // unknown checks.
             }
           }
 
@@ -182,6 +197,7 @@ export function deviceRoutes(deps: {
             ...(deps.policy ? { isAvailable: deps.policy.canUse(device.id), edition: deps.policy.snapshot().edition } : {}),
             state,
             resetPolicy: device.resetPolicy,
+            setupChecks,
           };
         })
       );
@@ -422,6 +438,55 @@ export function deviceRoutes(deps: {
     } catch (err) {
       res.status(502).json({ error: `could not reboot device: ${err instanceof Error ? err.message : String(err)}` });
     }
+  }));
+
+  /**
+   * Apply one setup check's fix (spec D-1: the only way DeviceYard changes a
+   * device setting). Success means the value READ BACK as fixed - a write
+   * that silently did nothing (a vendor ROM, Play services resetting it)
+   * must not clear the warning.
+   *
+   * Allowed while a job runs: one settings write does not disturb a flow,
+   * and refusing would make it unusable on a busy device.
+   */
+  router.post("/api/devices/:id/setup-checks/:checkId/fix", hardware(async (req, res) => {
+    // Admin-only, like reset-policy: a CI token never sets req.isAdmin.
+    if (!req.isAdmin) {
+      res.status(403).json({ error: "admin access required" });
+      return;
+    }
+    const device = deps.deviceRepo.get(req.params.id);
+    if (!device) {
+      res.status(404).json({ error: "unknown device" });
+      return;
+    }
+    const check = findSetupCheck(req.params.checkId);
+    if (!check) {
+      res.status(404).json({ error: "unknown setup check" });
+      return;
+    }
+
+    const { stdout } = await runner("adb", ["devices"]);
+    if (parseAdbDevices(stdout).get(device.id) !== "device") {
+      res.status(409).json({ error: "device is not connected and authorized" });
+      return;
+    }
+
+    const write = await runner("adb", ["-s", device.id, "shell", ...check.fixArgs]);
+    if (write.code !== 0) {
+      res.status(502).json({ error: `could not apply the setting: ${write.stderr.trim() || `exit ${write.code}`}` });
+      return;
+    }
+
+    const readBack = await runner("adb", ["-s", device.id, "shell", ...check.readArgs]);
+    const value = readBack.stdout.trim();
+    if (readBack.code !== 0 || !check.isOk(value)) {
+      res.status(502).json({ error: `setting did not take effect (read back: ${value || "nothing"})` });
+      return;
+    }
+
+    deps.deviceRepo.recordEvent(device.id, "setup_fix", `"${check.title}" fixed by ${actorOf(req, deps.userRepo)}`);
+    res.status(200).json({ check: checkResult(check, true) });
   }));
 
   router.get("/api/devices/:id/screenshot", hardware(async (req, res) => {

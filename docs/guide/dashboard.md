@@ -114,6 +114,13 @@ still `queued`.
 `GET /api/devices/:id/screenshot` streams one live PNG frame straight
 through, never written to disk and never added to the artifacts table.
 
+**Setup warnings.** A card shows an amber notice for each required device
+setting that is wrong (see operating.md, "Required device settings"), and
+the summary row adds a **Needs setup** count. Admins get a **Fix** button that
+applies the setting over adb and reads it back; everyone else is told to ask
+an admin. A device that cannot be read (offline, unauthorized) shows no
+warning rather than a guess.
+
 ## Full route contracts
 
 See the [API reference](api-reference.md).

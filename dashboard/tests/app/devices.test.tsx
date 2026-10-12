@@ -22,6 +22,7 @@ jest.mock("../../src/lib/api", () => ({
   addDevice: jest.fn(),
   takeDeviceScreenshot: jest.fn(),
   setDeviceResetPolicy: jest.fn(),
+  fixDeviceSetupCheck: jest.fn(),
 }));
 
 const ACTIVE: DeviceEntry = {
@@ -198,4 +199,109 @@ describe("reset policy", () => {
     const link = screen.getAllByRole("link", { name: /configure device/i })[0];
     expect(link).toHaveAttribute("href", `/devices/configure?device=${ACTIVE.id}`);
   });
+});
+
+describe("setup checks", () => {
+  const failing = (id: string, title: string) => ({ id, title, detail: `${title} detail`, ok: false });
+  const NEEDS_SETUP: DeviceEntry = {
+    ...ACTIVE,
+    setupChecks: [
+      failing("adb-auth-timeout", "USB debugging approval expires"),
+      failing("adb-install-verification", "Play Protect verifies adb installs"),
+    ],
+  };
+  const asAdmin = () =>
+    (api.fetchSession as jest.Mock).mockResolvedValue({
+      user: { id: 1, username: "n", email: "n@x.com", isAdmin: true },
+      orgs: [],
+    });
+
+  test("a failing check is shown on the card with its explanation", async () => {
+    (api.fetchDevices as jest.Mock).mockResolvedValue({ devices: [NEEDS_SETUP], runnerVersion: "0.1.25", artifactBytes: 0 });
+    render(<DevicesPage />);
+
+    expect(await screen.findByText("USB debugging approval expires")).toBeInTheDocument();
+    expect(screen.getByText("USB debugging approval expires detail")).toBeInTheDocument();
+    expect(screen.getAllByText(/Required device settings/)).toHaveLength(2);
+  });
+
+  test("unknown and passing checks raise no warning", async () => {
+    const quiet: DeviceEntry = {
+      ...ACTIVE,
+      setupChecks: [
+        { id: "adb-auth-timeout", title: "USB debugging approval expires", detail: "d", ok: null },
+        { id: "adb-install-verification", title: "Play Protect verifies adb installs", detail: "d", ok: true },
+      ],
+    };
+    (api.fetchDevices as jest.Mock).mockResolvedValue({ devices: [quiet], runnerVersion: "0.1.25", artifactBytes: 0 });
+    render(<DevicesPage />);
+    await screen.findByText("Pixel 7");
+
+    expect(screen.queryByText("USB debugging approval expires")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("needs-setup")).not.toBeInTheDocument();
+  });
+
+  test("non-admins are told to ask an admin and get no Fix button", async () => {
+    (api.fetchDevices as jest.Mock).mockResolvedValue({ devices: [NEEDS_SETUP], runnerVersion: "0.1.25", artifactBytes: 0 });
+    render(<DevicesPage />);
+    await screen.findByText("USB debugging approval expires");
+
+    expect(screen.getAllByText("Ask an admin to fix this.")).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: /^fix:/i })).not.toBeInTheDocument();
+  });
+
+  test("an admin's Fix calls the API for that check only, then refreshes", async () => {
+    asAdmin();
+    (api.fixDeviceSetupCheck as jest.Mock).mockResolvedValue(undefined);
+    (api.fetchDevices as jest.Mock).mockResolvedValue({ devices: [NEEDS_SETUP], runnerVersion: "0.1.25", artifactBytes: 0 });
+    render(<DevicesPage />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Fix: Play Protect verifies adb installs" }));
+
+    await waitFor(() =>
+      expect(api.fixDeviceSetupCheck).toHaveBeenCalledWith("RF8M40H8RFP", "adb-install-verification")
+    );
+    expect(api.fixDeviceSetupCheck).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(api.fetchDevices).toHaveBeenCalledTimes(2));
+  });
+
+  test("a failed fix shows the server's reason", async () => {
+    asAdmin();
+    (api.fixDeviceSetupCheck as jest.Mock).mockRejectedValue(
+      new api.ApiError(502, "setting did not take effect (read back: null)")
+    );
+    (api.fetchDevices as jest.Mock).mockResolvedValue({ devices: [NEEDS_SETUP], runnerVersion: "0.1.25", artifactBytes: 0 });
+    render(<DevicesPage />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Fix: USB debugging approval expires" }));
+
+    // By text, not role: the page's EditionCard already renders its own
+    // role="alert" in this fixture, which findByRole would return first.
+    const message = await screen.findByText("setting did not take effect (read back: null)");
+    expect(message).toHaveAttribute("role", "alert");
+  });
+
+  test("the summary counts devices needing setup, not failing checks", async () => {
+    (api.fetchDevices as jest.Mock).mockResolvedValue({ devices: [NEEDS_SETUP, INACTIVE], runnerVersion: "0.1.25", artifactBytes: 0 });
+    render(<DevicesPage />);
+
+    expect(await screen.findByTestId("needs-setup")).toHaveTextContent("1 device");
+  });
+});
+
+test("no Fix button on a device the current edition does not allow - the route would always refuse", async () => {
+  (api.fetchSession as jest.Mock).mockResolvedValue({
+    user: { id: 1, username: "n", email: "n@x.com", isAdmin: true },
+    orgs: [],
+  });
+  const locked: DeviceEntry = {
+    ...ACTIVE,
+    isAvailable: false,
+    setupChecks: [{ id: "adb-auth-timeout", title: "USB debugging approval expires", detail: "d", ok: false }],
+  };
+  (api.fetchDevices as jest.Mock).mockResolvedValue({ devices: [locked], runnerVersion: "0.1.25", artifactBytes: 0 });
+  render(<DevicesPage />);
+
+  expect(await screen.findByText("USB debugging approval expires")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /^fix:/i })).not.toBeInTheDocument();
 });

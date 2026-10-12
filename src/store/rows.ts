@@ -102,7 +102,9 @@ export type DeviceEventKind =
    * deletes browsing data on the next job. */
   | "reset_policy"
   /** The device's display name changed. */
-  | "renamed";
+  | "renamed"
+  /** An admin applied a setup-check fix (src/deviceSetupChecks.ts). */
+  | "setup_fix";
 
 /**
  * How thoroughly a device resets itself before each job.
