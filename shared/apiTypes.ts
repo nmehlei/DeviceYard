@@ -76,6 +76,9 @@ export interface DeviceEntry {
   isActive: boolean;
   /** Live adb state: "device", "offline", "unauthorized", ... */
   state: string;
+  /** Device settings DeviceYard depends on. `ok: null` = could not be read
+   * (device not online, or the read failed) - not a warning. */
+  setupChecks?: { id: string; title: string; detail: string; ok: boolean | null }[];
 }
 
 /** GET /api/devices - note the plural. There is no /api/device route. */

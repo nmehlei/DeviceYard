@@ -6,18 +6,36 @@ These are internal release candidates. This change does not publish AGPL source,
 
 ## Build
 
-From a clean checkout with dependencies installed:
+Community is built from `nmehlei/DeviceYard`. Pro is built from the separate
+private `nmehlei/DeviceYard-Pro` repository, which pins Community as its `core`
+submodule. Both use their existing Azure Pipelines; source hosting on GitHub
+does not move CI to GitHub Actions.
+
+From a clean Community checkout:
 
 ```sh
-node scripts/build-edition.cjs community /absolute/new/community-output
-node scripts/build-edition.cjs pro /absolute/new/pro-output /secure/public-verification-keys.json
+npm ci
+npm --prefix dashboard ci
+npm run build -- --webpack
+npm start
 ```
 
-Each destination must be new. The script stages source and compiles it, with edition and revision recorded in BUILD_INFO. The Pro build accepts a JSON map of key IDs to **Ed25519 public PEM keys**; private keys are rejected. Omitting the map builds a fail-closed development candidate with no trusted issuers. Do not distribute that candidate as an activated Pro release.
+In the Pro repository, initialize the pinned submodule and follow its README:
+assemble, install dependencies in `.build` and `.build/core/dashboard`, then
+build. `DEVICEYARD_VERIFICATION_KEYS_FILE` optionally supplies a JSON map of
+reviewed key IDs to **Ed25519 public PEM keys** before assembly. Private keys
+are rejected. Omitting it builds a fail-closed candidate with no trusted
+issuers; do not distribute that candidate as an activated Pro release.
 
-The staged source uses `npm ci`, `npm run build`, and `npm start`. Install runtime dependencies in that staged directory before starting. Build its dashboard with `npm --prefix dashboard ci` and `npm --prefix dashboard run build`, then copy `dashboard/out` to `dist/src/public`. Community's staged scheduler and concurrency panel replace the private pool implementation. Staging includes no Git history, tests, private package, local config, or pre-existing generated output.
+See [native release candidates](native.md) for isolated packaging and extracted
+archive validation. Native archives retain the `dist/index.js` entrypoint used
+by systemd; it starts the correct edition. They do not use a legacy unlicensed
+application entrypoint. The old MobileDeviceFarm application repo is a migration
+source, not a third maintained edition.
 
-Both editions retain the existing environment requirements and DATA_DIR. Pro additionally requires `DEVICEYARD_CUSTOMER_ID`, matching the signed commercial customer identity. Use the **edition entrypoint** `dist/entry.js`. Staged editions reject direct execution of `dist/src/index.js`. The private repository's existing deployment bundle retains its legacy entrypoint and behaviour.
+Both editions retain the existing environment requirements and DATA_DIR. Pro
+additionally requires `DEVICEYARD_CUSTOMER_ID`, matching the signed commercial
+customer identity. Keep persistent data and entitlement outside the archive.
 
 ## Entitlements
 

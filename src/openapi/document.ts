@@ -122,6 +122,10 @@ const schemas: Record<string, Schema> = {
     id: { type: "string" }, label: { type: ["string", "null"] }, model: { type: ["string", "null"] },
     isActive: { type: "boolean" }, state: { type: "string" }, createdAt: { type: "integer" },
     resetPolicy: { type: "string", enum: ["app-only", "app-and-browser"], description: "How thoroughly the device resets itself before each job. Set per device, never per job, so flows stay portable." },
+    setupChecks: array(object({
+      id: { type: "string" }, title: { type: "string" }, detail: { type: "string" },
+      ok: { type: ["boolean", "null"], description: "null = could not be read (device not online, or the read failed)." },
+    }, ["id", "title", "detail", "ok"])),
   }, ["id", "isActive"]),
   DeviceEvent: object({
     id: { type: "integer" }, deviceId: { type: "string" }, kind: { type: "string" },
@@ -243,6 +247,7 @@ add("/api/devices/{id}/reset-policy", OpenAPIV3_1.HttpMethods.POST, op("setDevic
 add("/api/devices/{id}", OpenAPIV3_1.HttpMethods.DELETE, op("deleteDevice", "Devices", "Remove a device", { 204: empty("Device removed"), ...errorResponses(401, 403, 404, 409) }, { parameters: [pathParameter("id")] }));
 add("/api/devices/{id}/events", OpenAPIV3_1.HttpMethods.GET, op("listDeviceEvents", "Devices", "List device events", { 200: json(object({ events: array(ref("DeviceEvent")) }, ["events"])), ...errorResponses(401, 403, 404) }, { parameters: [pathParameter("id"), queryParameter("limit", { type: "integer", minimum: 1, maximum: 100, default: 30 })] }));
 add("/api/devices/{id}/reboot", OpenAPIV3_1.HttpMethods.POST, op("rebootDevice", "Devices", "Reboot a device", { 202: json(ref("Ok")), ...errorResponses(401, 403, 404, 409, 502, 503) }, { parameters: [pathParameter("id")] }));
+add("/api/devices/{id}/setup-checks/{checkId}/fix", OpenAPIV3_1.HttpMethods.POST, op("fixDeviceSetupCheck", "Devices", "Apply a device setup check's fix (admin)", { 200: json(object({ check: object({ id: { type: "string" }, title: { type: "string" }, detail: { type: "string" }, ok: { type: "boolean" } }, ["id", "title", "detail", "ok"]) }, ["check"])), ...errorResponses(401, 403, 404, 409, 502, 503) }, { parameters: [pathParameter("id"), pathParameter("checkId")] }));
 add("/api/devices/{id}/screenshot", OpenAPIV3_1.HttpMethods.GET, op("captureDeviceScreenshot", "Devices", "Capture a live screenshot", { 200: { description: "PNG screenshot", content: { "image/png": { schema: { type: "string", format: "binary" } } } }, ...errorResponses(401, 403, 404, 502, 503) }, { parameters: [pathParameter("id")] }));
 add("/api/version", OpenAPIV3_1.HttpMethods.GET, { ...op("getVersion", "Devices", "Get DeviceYard and Maestro versions", { 200: json(object({ version: { type: "string" }, maestroVersion: { type: "string" }, maestroPending: { type: "boolean" } }, ["version", "maestroVersion"])), ...errorResponses(401, 403) }), parameters: [{ name: "waitForMaestro", in: "query", schema: { type: "boolean", default: true }, description: "Set false to return immediately while the Maestro version is checked in the background. Poll until maestroPending is false. Results are cached for five minutes." }] });
 add("/api/mcp-client", OpenAPIV3_1.HttpMethods.GET, op("downloadMcpClient", "MCP", "Download the bundled MCP client", { 200: { description: "ES module", content: { "text/javascript": { schema: { type: "string" } } } }, ...errorResponses(401, 403, 503) }));

@@ -306,7 +306,12 @@ no single "the active device" anymore. `isActive` marks pool membership, not
 which one is currently in use.
 
 ### `GET /api/devices`
-**`200`** — `{ devices: [{ id, label, model, isActive, state }], runnerVersion, artifactBytes }`.
+**`200`** — `{ devices: [{ id, label, model, isActive, state, resetPolicy, setupChecks: [{ id, title, detail, ok }] }], runnerVersion, artifactBytes }`.
+
+`setupChecks` has one entry per required device setting; `ok` is `null` when
+it could not be read (device not `device`, or the read failed), so only
+`false` is a warning. The model and every check are read in one bounded
+`adb shell` call per online device.
 
 `state` comes from a single bounded (5s) `adb devices` call answering for
 every row at once. A device not currently attached reports `"offline"` and is
@@ -345,6 +350,14 @@ finish"}` if it currently holds a running job.
 **`202`** — `{ ok: true }`. **`404`** unknown device. **`409`** if *this*
 device currently holds a running job — per-device, not farm-wide, so a busy
 device never blocks rebooting an idle one. **`502`** if `adb reboot` fails.
+
+### `POST /api/devices/:id/setup-checks/:checkId/fix`
+Admin only. Applies that check's setting over adb, then reads it back.
+**`200`** — `{ check: { id, title, detail, ok: true } }`, recorded as a
+`setup_fix` device event. **`403`** not an admin. **`404`** unknown device or
+check. **`409`** device not connected and authorized. **`502`** the write
+failed, or the read-back did not show the new value (`setting did not take
+effect (read back: ...)`) - nothing is recorded.
 
 ### `GET /api/devices/:id/screenshot`
 **`200`** `image/png` — one live frame, streamed straight through, never

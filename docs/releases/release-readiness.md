@@ -12,7 +12,7 @@ optional deployment path, experimental until physical-device acceptance passes.
 The existing container work covers Community; Pro packaging still needs its own
 implementation and validation. Do not advertise a Pro image as available yet.
 
-Maintenance mode remains planned for both deployment methods and editions:
+Maintenance mode is implemented in the GitHub Community and Pro sources:
 stop starting jobs, allow running jobs to finish, preserve the queue, and resume
 explicitly. See the [maintenance design](../superpowers/specs/2026-10-11-maintenance-mode-design.md).
 
@@ -37,8 +37,11 @@ content integration are still pending; this document records scope only.
 
 ## Remaining release work
 
-- Implement and validate maintenance mode in Community, Pro, and the native
-  production code path before deploying it to the farm.
+- Finish the [native migration](../superpowers/specs/2026-10-12-native-release-migration-design.md):
+  approved verification keys/entitlement, protected data rehearsal, updater CI
+  registration and policy, reviewed release promotion and coordinated cutover.
+  Keep native/systemd, using artifacts built by the existing Azure Pipelines
+  from the two GitHub repositories. Do not maintain a third legacy application.
 - Complete the website guide integration described above.
 - Finish [source and redistribution checks](../licenses/publication-audit.md).
 - Complete [container hardware validation](community-container-validation.md)

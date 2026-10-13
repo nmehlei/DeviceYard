@@ -67,6 +67,37 @@ single "the active device" to swap between.
 
 Registration performs no adb calls of its own; it just records the serial.
 
+### Required device settings
+
+Two Developer Options settings must be set on every farm device. The
+dashboard checks both on every poll and shows a warning on the device card
+when either is wrong; an admin can fix it there with **Fix** (recorded in the
+device's activity log as `setup_fix`). DeviceYard never changes them on its
+own.
+
+| Check | Developer Options | adb equivalent |
+|---|---|---|
+| USB debugging approval expires | **Disable adb authorization timeout** - ON | `adb shell settings put global adb_allowed_connection_time 0` |
+| Play Protect verifies adb installs | **Verify apps over USB** - OFF | `adb shell settings put global verifier_verify_adb_installs 0` |
+
+**Why the authorization timeout matters.** Android 11+ drops an "Always allow
+from this computer" grant once its last recorded connection is 7 days old. A
+farm phone stays plugged in for weeks, so after a reboot it can come back
+`unauthorized` - and recovering that needs someone in front of the device to
+accept the prompt again. It cannot be done remotely without root. Seen on the
+farm's S10 on 2026-10-02.
+
+**Why adb install verification matters.** With "Verify apps over USB" on,
+Play Protect checks each APK the farm installs. For a build it does not
+recognise (a local debug build, for example) that check can stop on an
+on-screen prompt, and the job's install step hangs until it times out. Only
+installs pushed by the farm host skip the check; Play Protect itself stays
+on. Google Play services may switch it back on; the warning then reappears.
+
+The check can only read an authorized device: for an `unauthorized` or
+offline device the card shows no setup warning, only the existing "accept the
+USB debugging prompt" hint.
+
 ### Enable, disable, remove
 
 - **Enable** adds a device to the pool. Safe at any time — enabling a free

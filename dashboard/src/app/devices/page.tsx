@@ -45,6 +45,8 @@ export default function DevicesPage() {
     );
   }
 
+  const needsSetup = devices.filter(device => device.setupChecks?.some(check => check.ok === false)).length;
+
   return <main className="ops-page">
     <MaintenanceCard readOnly />
     <div className="ops-title"><div><h1>Devices</h1><p className="ops-muted">Connection status, scheduling, and device actions in one place.</p></div><AddDeviceForm onAdded={refresh} /></div>
@@ -53,8 +55,9 @@ export default function DevicesPage() {
       <div><p className="ops-muted ops-small">Connected &amp; authorized</p><p className="ops-value">{devices.filter(device => device.state === "device").length} of {devices.length}</p></div>
       <div><p className="ops-muted ops-small">Enabled for jobs</p><p className="ops-value">{devices.filter(device => device.isActive).length} {devices.filter(device => device.isActive).length === 1 ? "device" : "devices"}</p></div>
       <div><p className="ops-muted ops-small">Needs authorization</p><p className="ops-value" style={{color:"var(--warn-amber)"}}>{devices.filter(device => device.state === "unauthorized").length} {devices.filter(device => device.state === "unauthorized").length === 1 ? "device" : "devices"}</p></div>
+      {needsSetup > 0 && <div data-testid="needs-setup"><p className="ops-muted ops-small">Needs setup</p><p className="ops-value" style={{color:"var(--warn-amber)"}}>{needsSetup} {needsSetup === 1 ? "device" : "devices"}</p></div>}
     </section>
-    <div className="ops-device-grid">{devices.map(device => <DeviceCard key={device.id} device={device} onChanged={refresh} />)}</div>
+    <div className="ops-device-grid">{devices.map(device => <DeviceCard key={device.id} device={device} admin={admin} onChanged={refresh} />)}</div>
     {!devices.length && <section className="ops-box ops-empty"><h2>Connect your first device</h2><p className="ops-muted">Connect an Android device with USB debugging enabled, then register it with the farm.</p></section>}
     <div className="ops-runner"><span>Runner <span className="ops-mono">{runnerVersion}</span></span>{artifactBytes > 0 && <span data-testid="artifact-bytes" style={{color:LEVEL_COLOR[artifactLevel(artifactBytes)]}}>Artifact storage · {formatBytes(artifactBytes)} across the farm</span>}</div>
   </main>;

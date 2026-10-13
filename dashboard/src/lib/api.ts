@@ -90,7 +90,17 @@ export type DeviceEventKind =
   | "state_change"
   | "reboot"
   | "screenshot"
-  | "reset_policy";
+  | "reset_policy"
+  | "setup_fix";
+
+/** A device setting DeviceYard depends on (server: src/deviceSetupChecks.ts).
+ * `ok: null` = could not be read; only `false` is a warning. */
+export interface DeviceSetupCheckEntry {
+  id: string;
+  title: string;
+  detail: string;
+  ok: boolean | null;
+}
 
 /** How thoroughly the device scrubs itself before each job. Set per device,
  * never per job: flows must be identical against DeviceCloud and DeviceYard. */
@@ -107,6 +117,8 @@ export interface DeviceEntry {
    * or "offline" (not currently attached - the row itself is never removed). */
   state: string;
   resetPolicy: ResetPolicy;
+  /** Optional so fixtures and older runners without it still type-check. */
+  setupChecks?: DeviceSetupCheckEntry[];
 }
 
 export interface DeviceEventEntry {
@@ -606,6 +618,14 @@ export async function rebootDevice(id: string, fetchImpl: typeof fetch = fetch):
     credentials: "include",
   });
   if (!res.ok) throw await apiErrorFrom(res, "failed to reboot device");
+}
+
+export async function fixDeviceSetupCheck(id: string, checkId: string, fetchImpl: typeof fetch = fetch): Promise<void> {
+  const res = await fetchImpl(
+    `/api/devices/${encodeURIComponent(id)}/setup-checks/${encodeURIComponent(checkId)}/fix`,
+    { method: "POST", credentials: "include" }
+  );
+  if (!res.ok) throw await apiErrorFrom(res, "failed to fix the device setting");
 }
 
 export async function fetchDeviceEvents(

@@ -28,6 +28,8 @@ test('maintenance returns stored device data and rejects hardware actions withou
   const reboot = await request(app).post('/api/devices/phone/reboot');
   expect(reboot.status).toBe(503); expect(reboot.body.code).toBe('MAINTENANCE_MODE');
   expect((await request(app).get('/api/devices/phone/screenshot')).status).toBe(503);
+  expect((await request(app).post('/api/devices/phone/setup-checks/adb-auth-timeout/fix')).status).toBe(503);
+  expect(list.body.devices[0].setupChecks.every((check: { ok: boolean | null }) => check.ok === null)).toBe(true);
   expect(runner).not.toHaveBeenCalled();
 });
 test('a finite operation admitted before maintenance remains counted until it finishes', async () => {

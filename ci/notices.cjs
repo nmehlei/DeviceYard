@@ -2,9 +2,12 @@
 const fs=require('node:fs');
 const path=require('node:path');
 const root=path.resolve(__dirname,'..');
+const serverRoot=process.argv[2] ? path.resolve(process.argv[2]) : root;
+const dashboardRoot=process.argv[3] ? path.resolve(process.argv[3]) : path.join(root,'dashboard');
+const destination=process.argv[4] ? path.resolve(process.argv[4]) : path.join(root,'docs/licenses/dependencies.json');
 const inventory=[];
 for(const area of ['.','dashboard']){
-  const base=path.join(root,area);
+  const base=area==='.' ? serverRoot : dashboardRoot;
   const lock=JSON.parse(fs.readFileSync(path.join(base,'package-lock.json')));
   for(const [location,entry] of Object.entries(lock.packages)){
     if(!location.includes('node_modules/')||entry.link)continue;
@@ -23,6 +26,6 @@ for(const area of ['.','dashboard']){
       notices:notices.map(name=>({file:name,text:fs.readFileSync(path.join(directory,name),'utf8')}))});
   }
 }
-fs.mkdirSync(path.join(root,'docs/licenses'),{recursive:true});
-fs.writeFileSync(path.join(root,'docs/licenses/dependencies.json'),JSON.stringify(inventory,null,2)+'\n');
+fs.mkdirSync(path.dirname(destination),{recursive:true});
+fs.writeFileSync(destination,JSON.stringify(inventory,null,2)+'\n');
 console.log(`Recorded notices for ${inventory.length} installed dependencies; platform-specific packages absent from this host need release-host verification.`);
