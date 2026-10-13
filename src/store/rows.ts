@@ -9,6 +9,7 @@ export type StepKind = "setup" | "flow";
 export type ArtifactKind = "screenshot" | "recording" | "hierarchy" | "stdout" | "stderr" | "log";
 
 export interface JobRow {
+  requiredDeviceTags: string[];
   id: string;
   org: string;
   status: JobStatus;
@@ -104,7 +105,8 @@ export type DeviceEventKind =
   /** The device's display name changed. */
   | "renamed"
   /** An admin applied a setup-check fix (src/deviceSetupChecks.ts). */
-  | "setup_fix";
+  | "setup_fix"
+  | "tags";
 
 /**
  * How thoroughly a device resets itself before each job.
@@ -128,6 +130,7 @@ export function isResetPolicy(value: unknown): value is ResetPolicy {
 }
 
 export interface DeviceRow {
+  tags: string[];
   id: string;
   label: string;
   model: string | null;

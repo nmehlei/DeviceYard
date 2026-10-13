@@ -267,9 +267,11 @@ const MIGRATIONS: string[] = [
     requested INTEGER NOT NULL DEFAULT 0 CHECK(requested IN (0,1))
   );
   INSERT INTO maintenance_settings(singleton, requested) VALUES (1, 0);`,
+  `ALTER TABLE devices ADD COLUMN tags_json TEXT NOT NULL DEFAULT '[]';
+   ALTER TABLE jobs ADD COLUMN required_device_tags_json TEXT NOT NULL DEFAULT '[]';`,
 ];
 
-export const SCHEMA_VERSION = 13;
+export const SCHEMA_VERSION = 14;
 
 export function migrate(db: Db): number {
   const row = db.get<{ user_version: number }>("PRAGMA user_version");

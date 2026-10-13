@@ -54,6 +54,7 @@ export async function runCloud(
       io.out(`  ${id}${tags.length ? `  [${tags.join(", ")}]` : ""}`);
     }
     if (env) io.out(`would pass env: ${Object.keys(env).join(", ")}`);
+    if (opts.requiredDeviceTags.length) io.out(`would require device tags: ${opts.requiredDeviceTags.join(', ')}`);
     return EXIT_OK;
   }
 
@@ -73,6 +74,7 @@ export async function runCloud(
     // Absent is NOT {}: an absent env field must produce a byte-identical
     // argument list to before the feature existed. See src/env.ts.
     if (env) form.set("env", JSON.stringify(env));
+    if (opts.requiredDeviceTags.length) form.set('requiredDeviceTags', JSON.stringify(opts.requiredDeviceTags));
 
     submitted = await client.postForm("/run", form);
   } catch (err) {

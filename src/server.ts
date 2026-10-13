@@ -14,6 +14,7 @@ import express, {
   type Response,
 } from "express";
 import multer from "multer";
+import { parseDeviceTags } from '../shared/deviceTags';
 import { context, type Context } from "@opentelemetry/api";
 import { Scheduler } from "./scheduler";
 import type { EditionFactory, EditionRuntime } from './editions/runtime';
@@ -137,7 +138,7 @@ export interface ServerDeps {
  * not expected to have them; the production path always returns a real
  * Scheduler, which has both.
  */
-export type InjectedScheduler = Pick<SchedulerHandle, "submit"> & Partial<Pick<SchedulerHandle, "dispatch" | "stop" | "blockedReason">>;
+export type InjectedScheduler = Pick<SchedulerHandle, "submit"> & Partial<Omit<SchedulerHandle, "submit">>;
 
 /**
  * The app, with the scheduler it owns hanging off it.
@@ -210,7 +211,8 @@ export function createServer(deps: ServerDeps): ServerHandle {
   // when createServer() is constructed before BUILD_INFO is installed.
   app.get("/openapi.json", (_req, res) => {
     res.setHeader("Cache-Control", "public, max-age=300");
-    res.status(200).json(buildOpenApiDocument());
+    const document = buildOpenApiDocument();
+    res.status(200).json({...document, paths: {...document.paths, ...edition?.deviceRouting?.openapiPaths}});
   });
   // Asset URLs are stable across upgrades, so keep this cache short enough
   // that a newly deployed Swagger UI cannot be shadowed by an old browser copy.
@@ -356,8 +358,9 @@ export function createServer(deps: ServerDeps): ServerHandle {
     leases: controlLeases,
     startControlStream: trackControlStream(maintenance, deps.startControlStream ?? startScrcpyControlStream),
     hasWaitingJobFor: (deviceId) => {
+      if (scheduler.waitingJobFor) return scheduler.waitingJobFor(deviceId);
       if (edition && !edition.policy.canUse(deviceId)) return undefined;
-      const jobId = deps.repo.oldestQueuedJobId();
+      const jobId = deps.repo.listQueuedJobs().find(job => job.requiredDeviceTags.length === 0)?.id;
       if (!jobId) return undefined;
       // Read the cap the same way Scheduler.dispatch does (src/scheduler.ts):
       // at the cap, dispatch returns before it ever looks at device free-ness,
@@ -561,6 +564,21 @@ export function createServer(deps: ServerDeps): ServerHandle {
           return;
         }
 
+        let requiredDeviceTags: string[];
+        try {
+          const raw = req.body?.requiredDeviceTags;
+          requiredDeviceTags = raw === undefined ? [] : parseDeviceTags(typeof raw === 'string' ? JSON.parse(raw) : null);
+        } catch {
+          cleanupUploadedFiles(files);
+          res.status(400).json({ error: 'requiredDeviceTags must be a JSON array of at most 16 unique lowercase tags (1–32 letters, digits or hyphens, starting with a letter or digit)' });
+          return;
+        }
+        if (requiredDeviceTags.length && !edition?.deviceRouting?.enabled()) {
+          cleanupUploadedFiles(files);
+          res.status(403).json({error: 'Device routing requires an active Pro license', code: 'PRO_ROUTING_REQUIRED'});
+          return;
+        }
+
         let env: Record<string, string> | undefined;
         try {
           env = parseEnvField(req.body?.env);
@@ -606,7 +624,14 @@ export function createServer(deps: ServerDeps): ServerHandle {
 
         preparedId = randomUUID();
         await jobInputs.save(preparedId, { appId, apkPath: apkFile.path, flowsArchivePath: flowsArchiveFile.path, env });
-        const job = deps.repo.createJob(req.org as string, flows as string[], env, appId, appVersion, preparedId);
+        // Entitlement may expire during APK parsing or durable input storage.
+        if (requiredDeviceTags.length && !edition?.deviceRouting?.enabled()) {
+          await jobInputs.remove(preparedId);
+          cleanupUploadedFiles(files);
+          res.status(403).json({error: 'Device routing requires an active Pro license', code: 'PRO_ROUTING_REQUIRED'});
+          return;
+        }
+        const job = deps.repo.createJob(req.org as string, flows as string[], env, appId, appVersion, preparedId, requiredDeviceTags);
         recordJobSubmitted(req.org as string);
         filesOwnedByJob = true;
 
@@ -801,7 +826,10 @@ export function createServer(deps: ServerDeps): ServerHandle {
 
   // Dashboard JSON API: mounted behind the same `auth` guard as /run and
   // /jobs above, so every route here is org-scoped the same way.
-  app.use(auth, jobRoutes({ repo: deps.repo, events, dataDir: deps.dataDir }));
+  app.use(auth, jobRoutes({ repo: deps.repo, events, dataDir: deps.dataDir,
+    waitingReason: id => app.scheduler.jobWaitingReason ? app.scheduler.jobWaitingReason(id) :
+      (deps.repo.getJob(id)?.requiredDeviceTags.length ? 'PRO_ROUTING_REQUIRED' : null) }));
+  if (edition?.deviceRouting) app.use(auth, edition.deviceRouting.routes);
   app.use(auth, maintenanceRoutes(maintenance));
   app.use(auth, fileRoutes({ repo: deps.repo, dataDir: deps.dataDir }));
   if (edition) app.use(auth, editionRoutes({policy:edition.policy,deviceRepo:deps.deviceRepo,dispatch:()=>app.scheduler.dispatch?.(),blockedReason:()=>app.scheduler.blockedReason?.() ?? null}));

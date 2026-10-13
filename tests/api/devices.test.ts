@@ -152,6 +152,7 @@ test("GET /api/devices reports live state, caches the model, and reports version
       expect(res.body.artifactBytes).toBe(0);
       expect(res.body.devices).toEqual([
         {
+          tags: [],
           id: DEVICE_ID,
           label: DEVICE_ID,
           model: "Pixel 7",

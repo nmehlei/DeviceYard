@@ -2,6 +2,7 @@
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import { EditionDeviceSettings } from '../../../components/EditionDeviceSettings';
 import { useRequireSession } from "../../../lib/useRequireSession";
 import { useSessionInfo } from "../../../lib/useSessionInfo";
 import { ActionDialog, DialogActions } from "../../../components/ActionDialog";
@@ -165,6 +166,8 @@ function ConfigureForm({ deviceId, isAdmin }: { deviceId: string; isAdmin: boole
         <div><dt>Model</dt><dd>{device.model ?? "Unknown model"}</dd></div>
         <div><dt>State</dt><dd>{device.state}</dd></div>
       </dl>
+
+      <EditionDeviceSettings key={device.id} deviceId={device.id} isAdmin={isAdmin} tags={device.tags ?? []} />
 
       <fieldset className="mb-4" disabled={!isAdmin || busy}>
         <legend className="ops-small mb-1">Reset before each job</legend>

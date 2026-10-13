@@ -1,5 +1,6 @@
 import { CliError } from "./exit";
 import { nearest } from "./distance";
+import { parseDeviceTags } from '../../shared/deviceTags';
 
 export interface CloudOptions {
   appFile?: string;
@@ -9,6 +10,7 @@ export interface CloudOptions {
   url?: string;
   org?: number;
   envPairs: string[];
+  requiredDeviceTags: string[];
   includeTags: string[];
   excludeTags: string[];
   excludeFlows: string[];
@@ -64,6 +66,7 @@ export const UNSUPPORTED: Readonly<Record<string, string>> = Object.freeze({
 
 export const KNOWN_OPTIONS = [
   "--api-key", "--url", "--org", "--app-file", "--flows", "--exclude-flows",
+  "--device-tags",
   "--include-tags", "--exclude-tags", "--env", "--name", "--async", "--quiet",
   "--json", "--json-file", "--json-file-name", "--dry-run", "--report",
   "--junit-path", "--download-artifacts", "--artifacts-path", "--debug", "--help",
@@ -83,6 +86,7 @@ export function parseCloud(argv: string[]): CloudOptions {
   const o: CloudOptions = {
     flowsPath: "",
     envPairs: [],
+    requiredDeviceTags: [],
     includeTags: [],
     excludeTags: [],
     excludeFlows: [],
@@ -135,6 +139,7 @@ export function parseCloud(argv: string[]): CloudOptions {
       case "--include-tags": o.includeTags.push(...list(next())); break;
       case "--exclude-tags": o.excludeTags.push(...list(next())); break;
       case "--env": o.envPairs.push(next()); break;
+      case "--device-tags": o.requiredDeviceTags.push(...next().split(',').map(tag => tag.trim())); break;
       case "--name": o.name = next(); break;
       case "--async": o.async = true; break;
       case "--quiet": case "-q": o.quiet = true; break;
@@ -189,6 +194,8 @@ export function parseCloud(argv: string[]): CloudOptions {
     throw new CliError("a flows path is required: deviceyard cloud <app-file> <flows-dir>");
   }
 
+  try { o.requiredDeviceTags = parseDeviceTags(o.requiredDeviceTags); }
+  catch (error) { throw new CliError(error instanceof Error ? error.message : 'Invalid device tags'); }
   return o;
 }
 

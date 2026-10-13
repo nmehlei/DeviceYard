@@ -17,4 +17,6 @@ export interface SchedulerHandle {
   busyDevices(): string[];
   stop(): void;
   blockedReason?(): string | null;
+  jobWaitingReason?(jobId: string): string | null;
+  waitingJobFor?(deviceId: string): string | undefined;
 }

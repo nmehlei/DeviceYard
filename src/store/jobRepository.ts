@@ -1,6 +1,7 @@
 import type { Db } from "../db/driver";
 import { maskEnvForStorage } from "../env";
 import { log } from "../telemetry/log";
+import { parseDeviceTags } from '../../shared/deviceTags';
 import type {
   ArtifactKind,
   ArtifactRow,
@@ -31,6 +32,7 @@ function preview(text: string | undefined): string | null {
 }
 
 interface JobRecord {
+  required_device_tags_json: string;
   id: string;
   org: string;
   status: string;
@@ -63,6 +65,7 @@ interface StepRecord {
 
 function toJob(record: JobRecord): JobRow {
   return {
+    requiredDeviceTags: parseDeviceTags(JSON.parse(record.required_device_tags_json)),
     id: record.id,
     org: record.org,
     status: record.status as JobStatus,
@@ -177,23 +180,26 @@ export class JobRepository {
     env?: Record<string, string>,
     appId?: string | null,
     appVersion?: string | null,
-    preparedId?: string
+    preparedId?: string,
+    requiredDeviceTags: string[] = []
   ): JobRow {
     const createdAt = this.now();
     const id = preparedId ?? `${createdAt}-${Math.random().toString(36).slice(2, 8)}`;
     const envJson = env === undefined ? null : JSON.stringify(maskEnvForStorage(env));
+    const tagsJson = JSON.stringify(parseDeviceTags(requiredDeviceTags));
 
     this.db.exec("BEGIN");
     try {
       this.db.run(
-        "INSERT INTO jobs (id, org, status, created_at, env_json, app_id, app_version) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO jobs (id, org, status, created_at, env_json, app_id, app_version, required_device_tags_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         id,
         org,
         "queued",
         createdAt,
         envJson,
         appId ?? null,
-        appVersion ?? null
+        appVersion ?? null,
+        tagsJson
       );
 
       const names = [...SETUP_STEPS.map((name) => ({ kind: "setup", name })), ...flows.map((name) => ({ kind: "flow", name }))];
@@ -365,7 +371,7 @@ export class JobRepository {
     const startedAt = this.now();
     const won = this.db.get<{ id: string }>(
       `UPDATE jobs SET status = 'running', started_at = ?, device_id = ?
-        WHERE id = (SELECT id FROM jobs WHERE status = 'queued' ORDER BY created_at ASC, rowid ASC LIMIT 1)
+        WHERE id = (SELECT id FROM jobs WHERE status = 'queued' AND required_device_tags_json = '[]' ORDER BY created_at ASC, rowid ASC LIMIT 1)
           AND status = 'queued'
           AND NOT EXISTS (SELECT 1 FROM maintenance_settings WHERE requested = 1)
           AND (? = 0 OR NOT EXISTS (SELECT 1 FROM jobs WHERE status = 'running'))
@@ -413,6 +419,21 @@ export class JobRepository {
   }
 
   runningJobIds(): string[] { return this.db.all<{ id: string }>("SELECT id FROM jobs WHERE status='running'").map(row => row.id); }
+  listQueuedJobs(): JobRow[] {
+    return this.db.all<JobRecord>("SELECT * FROM jobs WHERE status='queued' ORDER BY created_at ASC, rowid ASC").map(toJob);
+  }
+
+  /** The edition chooses a compatible job synchronously, then atomically claims it. */
+  claimQueuedJob(id: string, deviceId: string): JobRow | undefined {
+    const won = this.db.get<{id: string}>(`UPDATE jobs SET status='running', started_at=?, device_id=?
+      WHERE id=? AND status='queued'
+      AND NOT EXISTS (SELECT 1 FROM maintenance_settings WHERE requested=1)
+      AND EXISTS (SELECT 1 FROM devices WHERE id=? AND is_active=1)
+      AND NOT EXISTS (SELECT 1 FROM jobs WHERE device_id=? AND status='running')
+      RETURNING id`, this.now(), deviceId, id, deviceId, deviceId);
+    return won ? this.getJob(won.id) : undefined;
+  }
+
   isMaintenanceRequested(): boolean { return this.db.get<{ requested: number }>('SELECT requested FROM maintenance_settings WHERE singleton=1')?.requested === 1; }
   setMaintenanceRequested(requested: boolean): void { this.db.run('UPDATE maintenance_settings SET requested=? WHERE singleton=1', requested ? 1 : 0); }
 

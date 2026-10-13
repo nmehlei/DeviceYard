@@ -39,6 +39,8 @@ export interface StepRow {
 }
 
 export interface JobRow {
+  requiredDeviceTags?: string[];
+  waitingReason?: string | null;
   id: string;
   org: string;
   status: JobStatus;
@@ -69,6 +71,7 @@ export interface JobListResponse {
 }
 
 export interface DeviceEntry {
+  tags?: string[];
   id: string;
   label: string;
   model: string | null;

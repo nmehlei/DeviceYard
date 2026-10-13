@@ -30,6 +30,8 @@ export type StepKind = "setup" | "flow";
 export type ArtifactKind = "screenshot" | "recording" | "hierarchy" | "stdout" | "stderr" | "log";
 
 export interface JobRow {
+  requiredDeviceTags?: string[];
+  waitingReason?: string | null;
   id: string;
   org: string;
   status: JobStatus;
@@ -107,6 +109,7 @@ export interface DeviceSetupCheckEntry {
 export type ResetPolicy = "app-only" | "app-and-browser";
 
 export interface DeviceEntry {
+  tags?: string[];
   isAvailable?: boolean;
   edition?: 'community' | 'pro';
   id: string;

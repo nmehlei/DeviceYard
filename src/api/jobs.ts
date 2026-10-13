@@ -14,7 +14,7 @@ function summarise(steps: StepRow[]) {
   };
 }
 
-export function jobRoutes(deps: { repo: JobRepository; events: JobEvents; dataDir: string }): Router {
+export function jobRoutes(deps: { repo: JobRepository; events: JobEvents; dataDir: string; waitingReason?: (id: string) => string | null }): Router {
   const router = Router();
 
   // A list view stays cheap even with a lot of history: it summarises each
@@ -37,7 +37,7 @@ export function jobRoutes(deps: { repo: JobRepository; events: JobEvents; dataDi
     const job = deps.repo.getJob(id);
     if (!job || job.org !== org) return undefined;
     return {
-      job,
+      job: {...job, waitingReason: job.status === 'queued' ? deps.waitingReason?.(id) ?? null : null},
       steps: deps.repo.getSteps(id).map((step) => ({
         ...step,
         artifacts: deps.repo.getArtifacts(step.id),
@@ -89,22 +89,28 @@ export function jobRoutes(deps: { repo: JobRepository; events: JobEvents; dataDi
       if (!payload) return;
       res.write(`data: ${JSON.stringify(payload)}\n\n`);
       if (payload.job.status === "done" || payload.job.status === "failed") {
-        unsubscribe();
+        cleanup();
         res.end();
       }
     };
 
     const unsubscribe = deps.events.subscribe(req.params.id, send);
+    // Queue eligibility can change without a job event (device tags, health or license).
+    const refresh = deps.waitingReason ? setInterval(() => {
+      if (deps.repo.getJob(req.params.id)?.status === 'queued') send();
+    }, 10_000) : undefined;
+    refresh?.unref?.();
+    const cleanup = () => { clearInterval(refresh); unsubscribe(); };
     // A client that navigates away or closes its tab never calls the
     // unsubscribe function above on its own - without this, the listener
     // stays registered on JobEvents forever, one per abandoned connection.
-    req.on("close", unsubscribe);
+    req.on("close", cleanup);
     // A response can also die via an 'error' event (e.g. a reset connection)
     // without ever firing 'close' in time to beat the next publish() - clean
     // up here too so a broken SSE socket can never reach res.write().
     res.on("error", (err) => {
       log.error("SSE response errored", { jobId: req.params.id, err: String(err) });
-      unsubscribe();
+      cleanup();
     });
     send();
   });

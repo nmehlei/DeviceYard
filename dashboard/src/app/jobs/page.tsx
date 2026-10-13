@@ -7,6 +7,7 @@ import { useRequireSession } from "../../lib/useRequireSession";
 import { jobOutcome, durationLabel } from "../../lib/jobPresentation";
 import { StepTimeline } from "../../components/StepTimeline";
 import { Skeleton } from "../../components/Skeleton";
+import { jobWaitingReason } from '../../lib/jobWaitingReason';
 
 function JobPageSkeleton() {
   return (
@@ -68,6 +69,8 @@ export default function JobPage() {
           <h1>{outcome.title}</h1>
           <p className="job-secondary">{countSummary || (terminal ? "No flow results" : "Waiting for flow results")}</p>
           {detail.job.error && <p className="job-error">{detail.job.error}</p>}
+          {detail.job.status === 'queued' && jobWaitingReason(detail.job.waitingReason) &&
+            <p role="status">{jobWaitingReason(detail.job.waitingReason)}</p>}
         </div>
       </section>
         {status === "reconnecting" && (
@@ -78,6 +81,7 @@ export default function JobPage() {
           {jobDeviceDisplayName(detail.job.deviceId, detail.job.status, deviceLabels)}
         </dd></div>
         <div><dt>Job ID</dt><dd className="mono">{detail.job.id}</dd></div>
+        {!!detail.job.requiredDeviceTags?.length && <div><dt>Required device tags</dt><dd>{detail.job.requiredDeviceTags.join(', ')}</dd></div>}
         <div><dt>Execution time</dt><dd>{detail.job.startedAt === null ? "Not started" : detail.job.finishedAt === null ? (terminal ? "Not recorded" : "In progress") : durationLabel(detail.job.startedAt, detail.job.finishedAt)}</dd></div>
         <div><dt>Created</dt><dd>{timestamp(detail.job.createdAt, "Not recorded")}</dd></div>
         <div><dt>Started</dt><dd>{timestamp(detail.job.startedAt, "Not started")}</dd></div>

@@ -98,6 +98,8 @@ const schemas: Record<string, Schema> = {
     artifacts: array(ref("Artifact")),
   }, ["id", "jobId", "ordinal", "kind", "name", "status"]),
   Job: object({
+    requiredDeviceTags: { type: 'array', maxItems: 16, uniqueItems: true, items: { type: 'string', pattern: '^[a-z0-9][a-z0-9-]{0,31}$' } },
+    waitingReason: { type: ['string', 'null'], description: 'Current queue eligibility reason, included in job details' },
     id: { type: "string" }, org: { type: "string" },
     status: { type: "string", enum: ["queued", "running", "done", "failed"] },
     error: { type: ["string", "null"] }, createdAt: { type: "integer" },
@@ -119,6 +121,7 @@ const schemas: Record<string, Schema> = {
     results: array(ref("LegacyResult")), error: { type: "string" }, createdAt: { type: "integer" },
   }, ["id", "org", "flows", "status", "results", "createdAt"]),
   Device: object({
+    tags: { type: 'array', maxItems: 16, uniqueItems: true, items: { type: 'string', pattern: '^[a-z0-9][a-z0-9-]{0,31}$' } },
     id: { type: "string" }, label: { type: ["string", "null"] }, model: { type: ["string", "null"] },
     isActive: { type: "boolean" }, state: { type: "string" }, createdAt: { type: "integer" },
     resetPolicy: { type: "string", enum: ["app-only", "app-and-browser"], description: "How thoroughly the device resets itself before each job. Set per device, never per job, so flows stay portable." },
@@ -159,6 +162,7 @@ add("/run", OpenAPIV3_1.HttpMethods.POST, op("submitRun", "CI", "Queue a test ru
   apk: { type: "string", format: "binary" }, flowsArchive: { type: "string", format: "binary" },
   flows: { type: "string", description: "JSON array of flow identifiers" },
   env: { type: "string", description: "Optional JSON object of string environment values" },
+  requiredDeviceTags: { type: 'string', description: 'Optional JSON array of up to 16 unique lowercase device tags, 1–32 letters/digits/hyphens with an alphanumeric first character. Nonempty requirements need active Pro routing. All tags must match; never silently ignored.' },
 }, ["apk", "flowsArchive", "flows"]) } } } }));
 add("/run/{id}", OpenAPIV3_1.HttpMethods.GET, op("getRun", "CI", "Get a test run", { 200: json(ref("LegacyJob")), ...errorResponses(401, 403, 404) }, { parameters: [pathParameter("id")] }));
 add("/jobs", OpenAPIV3_1.HttpMethods.GET, op("listRuns", "CI", "List the latest test runs", { 200: json(array(ref("LegacyJob"))), ...errorResponses(401, 403) }));

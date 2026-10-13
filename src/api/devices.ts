@@ -192,6 +192,7 @@ export function deviceRoutes(deps: {
           return {
             id: device.id,
             label: device.label,
+            tags: device.tags,
             model,
             isActive: device.isActive,
             ...(deps.policy ? { isAvailable: deps.policy.canUse(device.id), edition: deps.policy.snapshot().edition } : {}),
