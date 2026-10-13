@@ -30,8 +30,9 @@ async function smoke(manifestPath) {
     const server = net.createServer(); await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
     const port = server.address().port; await new Promise(resolve => server.close(resolve));
     const password = randomBytes(24).toString('hex');
+    const token = randomBytes(24).toString('hex');
     const env = {PATH:process.env.PATH, HOME:temp, NODE_ENV:'test', PORT:String(port), DATA_DIR:data,
-      DEVICE_ID:'native-smoke-device', TOKENS_JSON:'{}', DEVICEYARD_CUSTOMER_ID:'native-smoke-customer',
+      DEVICE_ID:'native-smoke-device', TOKENS_JSON:JSON.stringify({smoke:token}), DEVICEYARD_CUSTOMER_ID:'native-smoke-customer',
       ADMIN_USERNAME:'smoke', ADMIN_EMAIL:'smoke@example.invalid', ADMIN_PASSWORD:password,
       SESSION_SECRET:randomBytes(32).toString('hex'), TOKEN_ENCRYPTION_KEY:randomBytes(32).toString('hex')};
     const base = `http://127.0.0.1:${port}`;
@@ -62,13 +63,31 @@ async function smoke(manifestPath) {
     for (const route of ['/api-docs', '/api/mcp-client', '/cli/install.sh']) await call(route);
     const enabled = await (await call('/api/admin/maintenance', 'PUT', {requested:true})).json();
     if (enabled.state !== 'ready') throw Error('Empty native farm did not drain');
+    const flows = path.join(temp, 'flows'); fs.mkdirSync(path.join(flows, 'e2e/scenarios'), {recursive:true});
+    fs.writeFileSync(path.join(flows, 'e2e/scenarios/native.yaml'), 'appId: com.example.android.contactmanager\n---\n- launchApp\n');
+    const flowArchive = path.join(temp, 'flows.tar.gz');
+    execFileSync('tar', ['-czf', flowArchive, '-C', flows, 'e2e']);
+    const apk = fs.readFileSync(path.resolve(__dirname, '../../tests/fixtures/ContactManager.apk'));
+    const upload = new FormData();
+    upload.set('flows', '["native"]'); upload.set('env', '{"E2E_LABEL":"native-restart"}');
+    upload.set('apk', new Blob([apk]), 'test.apk');
+    upload.set('flowsArchive', new Blob([fs.readFileSync(flowArchive)]), 'flows.tar.gz');
+    const accepted = await fetch(base + '/run', {method:'POST', headers:{Authorization:`Bearer ${token}`}, body:upload, signal:AbortSignal.timeout(15000)});
+    if (accepted.status !== 202) throw Error(`Native queued submission failed (${accepted.status})`);
+    const job = await accepted.json();
+    fs.rmSync(flows, {recursive:true}); fs.unlinkSync(flowArchive);
     await stop(); await start();
     const recovered = await (await call('/api/maintenance')).json();
     if (!recovered.requested || recovered.state !== 'ready') throw Error('Maintenance did not survive native restart');
+    const queued = await fetch(base + '/api/jobs/' + job.id, {headers:{Authorization:`Bearer ${token}`}, signal:AbortSignal.timeout(5000)});
+    if (!queued.ok || (await queued.json()).job.status !== 'queued') throw Error('Native queued job did not survive restart');
+    const inputs = path.join(data, 'job-inputs', job.id);
+    if (!fs.readFileSync(path.join(inputs, 'app.apk')).equals(apk) ||
+        JSON.parse(fs.readFileSync(path.join(inputs, 'manifest.json'))).env.E2E_LABEL !== 'native-restart') throw Error('Native queued execution payload was lost');
     const devices = await (await call('/api/devices')).json();
     if (!devices.stale || !devices.devices[0].setupChecks.every(check => check.ok === null)) throw Error('Maintenance device status must be cached');
     if ((await (await call('/api/admin/maintenance', 'PUT', {requested:false})).json()).state !== 'normal') throw Error('Native resume failed');
-    console.log(`Extracted ${manifest.edition} native archive passed startup, assets, edition, version and maintenance restart/resume`);
+    console.log(`Extracted ${manifest.edition} native archive passed startup, assets, edition, version and queued payload/maintenance restart/resume`);
   } finally { await stop(); fs.rmSync(temp, {recursive:true, force:true}); }
 }
 module.exports = {smoke};
