@@ -162,6 +162,7 @@ deviceyard cloud app-testing.apk e2e/scenarios --dry-run
 | `--flows <path>` | The flows path, instead of the positional argument |
 | `--exclude-flows <paths>` | Comma-separated flow ids or sub-directories to skip |
 | `--include-tags <tags>` | Only run flows carrying one of these tags |
+| `--device-tags <tags>` | Require all comma-separated device tags (Pro); separate from flow tags. See [device routing](device-routing.md) |
 | `--exclude-tags <tags>` | Skip flows carrying one of these tags |
 
 Tag filtering happens **on your machine**, before submission: the CLI already

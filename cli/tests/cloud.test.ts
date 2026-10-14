@@ -51,6 +51,15 @@ function deps(frames: unknown[], postResult: unknown = { id: "job-1", status: "q
 }
 
 describe("runCloud", () => {
+  it('serializes device requirements separately from flow tags', async () => {
+    const d = deps([]);
+    let posted: FormData | undefined;
+    d.client.postForm = async (_url, form) => { posted = form; return {id:'job-1',status:'queued'}; };
+    expect(await runCloud(parseCloud([apk, scenarios, '--device-tags', 'tablet,camera', '--async']),conn,d)).toBe(EXIT_OK);
+    expect(posted?.get('requiredDeviceTags')).toBe('["tablet","camera"]');
+    expect(() => parseCloud([apk,scenarios,'--device-tags','Tablet'])).toThrow();
+    expect(() => parseCloud([apk,scenarios,'--device-tags','tablet,'])).toThrow();
+  });
   it("exits 0 when every flow passes", async () => {
     const d = deps([frame("done", [{ name: "login", status: "passed" }, { name: "map/filter", status: "passed" }])]);
     expect(await runCloud(parseCloud([apk, scenarios]), conn, d)).toBe(EXIT_OK);

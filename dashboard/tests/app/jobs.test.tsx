@@ -56,6 +56,16 @@ test("shows the label of the device that ran the job", async () => {
   await waitFor(() => expect(screen.getByTestId("job-device")).toHaveTextContent("Pixel 7 (desk)"));
 });
 
+test('shows required device tags and explains unmatched queued jobs', async () => {
+  (useJobEventsModule.useJobEvents as jest.Mock).mockReturnValue({
+    detail: {...detail, job: {...detail.job, status:'queued', error:null,
+      requiredDeviceTags:['tablet','camera'], waitingReason:'NO_MATCHING_DEVICE'}}, status:'live',
+  });
+  render(<JobPage />);
+  expect(await screen.findByText('tablet, camera')).toBeInTheDocument();
+  expect(screen.getByText('No enrolled device has all the required tags.')).toBeInTheDocument();
+});
+
 test("falls back to the raw serial when the device label fetch fails", async () => {
   // jobs.device_id is ON DELETE SET NULL, so a device removed from the pool
   // can never produce this case - its jobs would carry a null deviceId and

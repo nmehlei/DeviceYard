@@ -1,8 +1,10 @@
 import type { Db } from "../db/driver";
+import { parseDeviceTags } from '../../shared/deviceTags';
 import { isResetPolicy } from "./rows";
 import type { DeviceEventKind, DeviceEventRow, DeviceRow, ResetPolicy } from "./rows";
 
 interface DeviceRecord {
+  tags_json: string;
   id: string;
   label: string;
   model: string | null;
@@ -21,6 +23,7 @@ interface DeviceEventRecord {
 
 function toDevice(record: DeviceRecord): DeviceRow {
   return {
+    tags: parseDeviceTags(JSON.parse(record.tags_json)),
     id: record.id,
     label: record.label,
     model: record.model,
@@ -150,6 +153,16 @@ export class DeviceRepository {
   /** The display name only. The id is the adb serial and never changes. */
   setLabel(id: string, label: string): void {
     this.db.run("UPDATE devices SET label = ? WHERE id = ?", label, id);
+  }
+
+  setTags(id: string, tags: string[], actor: string): void {
+    const validated = parseDeviceTags(tags);
+    this.db.exec('BEGIN');
+    try {
+      this.db.run('UPDATE devices SET tags_json=? WHERE id=?', JSON.stringify(validated), id);
+      this.recordEvent(id, 'tags', `tags set to ${JSON.stringify(validated)} by ${actor}`);
+      this.db.exec('COMMIT');
+    } catch (error) { this.db.exec('ROLLBACK'); throw error; }
   }
 
   updateModel(id: string, model: string): void {
