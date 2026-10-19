@@ -182,10 +182,8 @@ Where you can read it back is uneven, and worth knowing:
   response shapes are frozen for CI compatibility and were not changed.
 - `GET /api/jobs/:id` and `GET /api/jobs` (the dashboard API) return the
   whole job row, so `envJson` is present there today — as a JSON string, not
-  a parsed object. Nothing in the dashboard renders it yet, and it is tracked
-  in [`docs/open_issues.md`](../open_issues.md) as a field to either surface
-  deliberately or remove. Do not build against it without checking there
-  first.
+  a parsed object. Treat this as an implementation detail rather than a
+  stable API field; avoid building integrations against it.
 
 ## What is deliberately not supported
 

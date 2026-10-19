@@ -48,7 +48,7 @@ request.
 # CI API
 
 Flat paths, no `/api` prefix. **These response shapes are frozen** — a
-contract test suite pins them, because DonableApp's pipeline depends on them.
+contract test suite pins them, because existing CI integrations depend on them.
 Nothing here will change shape.
 
 ## `POST /run`
@@ -244,8 +244,8 @@ plus a cheap progress summary: `flowCount`, `passed`, `failed`, `running`.
 ```jsonc
 {
   // envJson: JSON string of the env this job ran with, secret values already
-  // masked — or null if none was sent. See docs/open_issues.md before
-  // building against it.
+  // masked — or null if none was sent. This is an implementation detail,
+  // not a stable integration contract.
   // deviceId: the enrolled device this job ran (or is running) on, set the
   // moment the scheduler claims it - null while still queued.
   "job":  { "id", "org", "status", "error", "createdAt", "startedAt", "finishedAt", "envJson", "deviceId" },

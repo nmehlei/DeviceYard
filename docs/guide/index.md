@@ -6,8 +6,9 @@ your `e2e/` directory; it installs, runs each flow in order, and hands back
 verdicts plus every screenshot, screen recording, view hierarchy dump and
 log Maestro produced.
 
-Several devices can be enrolled at once; jobs are claimed by whichever device
-is free, and an admin-configurable cap bounds how many run at the same time.
+Community runs one active device and one job at a time per installation.
+Pro adds device pools, parallel execution, health-aware scheduling and routing
+by device tags. See [editions](editions.md) for the distinction.
 
 ## Which guide do you want?
 
@@ -49,8 +50,8 @@ This trips people up, so it is worth stating once up front. The farm serves
 two unrelated sets of routes:
 
 - **The CI API** — `POST /run`, `GET /run/:id`, `GET /jobs`, `GET /status`.
-  Flat paths, no `/api` prefix, deliberately frozen: DonableApp's pipeline
-  depends on these exact response shapes, and they are covered by a contract
+  Flat paths, no `/api` prefix, deliberately stable: existing CI integrations
+  depend on these exact response shapes, and they are covered by a contract
   test suite that must never change. This is what [Running flows](running-flows.md)
   documents.
 - **The dashboard API** — everything under `/api/*`. Different paths,

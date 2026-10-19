@@ -1,0 +1,14 @@
+ContactManager
+Copyright (C) 2009 The Android Open Source Project
+
+Selendroid test app
+Copyright 2012-2014 eBay Software Foundation and selendroid committers.
+
+Appium Sample Code (https://github.com/appium/sample-code)
+Copyright 2013-2014 Appium Contributors
+
+Apache Commons IO
+Copyright 2002-2012 The Apache Software Foundation
+
+This product includes software developed by
+The Apache Software Foundation (http://www.apache.org/).
