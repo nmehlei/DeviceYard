@@ -75,5 +75,4 @@ The response includes `state` (`normal`, `draining`, `ready`), `requested`,
 
 Docker on Linux remains experimental pending physical-device validation. See
 [container installation](container.md); native/systemd remains recommended for
-USB-connected farms. This guide is source content for the planned website docs;
-website integration is tracked in [release readiness](../releases/release-readiness.md).
+USB-connected farms. See [Getting started](getting-started.md) for first-time setup.
