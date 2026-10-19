@@ -33,7 +33,7 @@ mkdir -p ~/.mobile-farm
 
 curl -s -H "Authorization: Bearer $MOBILE_FARM_PAT" \
   "$FARM_URL/api/me/orgs"
-# -> {"orgs":[{"id":1,"name":"donable"},{"id":2,"name":"momentum"}]}
+# -> {"orgs":[{"id":1,"name":"example-team"},{"id":2,"name":"another-team"}]}
 
 curl -fsSL -H "Authorization: Bearer $MOBILE_FARM_PAT" -H "X-Org-Id: 1" \
   "$FARM_URL/api/mcp-client" -o ~/.mobile-farm/mcp.mjs
@@ -68,7 +68,7 @@ Claude Code (`.mcp.json`):
       "args": ["/Users/you/.mobile-farm/mcp.mjs"],
       "env": {
         "MOBILE_FARM_URL": "https://mobile-farm.example.com",
-        "MOBILE_FARM_ORG": "donable"
+        "MOBILE_FARM_ORG": "example-team"
       }
     }
   }
@@ -81,7 +81,7 @@ Codex (`config.toml`):
 [mcp_servers.mobile-farm]
 command = "node"
 args = ["/Users/you/.mobile-farm/mcp.mjs"]
-env = { MOBILE_FARM_URL = "https://mobile-farm.example.com", MOBILE_FARM_ORG = "donable" }
+env = { MOBILE_FARM_URL = "https://mobile-farm.example.com", MOBILE_FARM_ORG = "example-team" }
 ```
 
 **This config holds no secret.** Only a URL and, optionally, a non-secret org
@@ -118,7 +118,7 @@ silently ignored.
 | Variable | Required | Meaning |
 |---|---|---|
 | `MOBILE_FARM_URL` | yes | Farm base URL. Normalised to origin + path — a pasted `?token=…` status URL has its query stripped rather than being concatenated into every request. |
-| `MOBILE_FARM_ORG` | no | Default org for PAT use — a **name**, e.g. `donable`. **Non-secret**, safe to commit. |
+| `MOBILE_FARM_ORG` | no | Default org for PAT use — a **name**, e.g. `example-team`. **Non-secret**, safe to commit. |
 | `MOBILE_FARM_TIMEOUT_MS` | no | Per-request HTTP timeout, default `900000` (15 min). Bounds one HTTP call end to end — connection, headers *and* body — not a job. `wait_for_job` has its own budget, and the SSE stream it consumes is deliberately not bounded by this. |
 | `MOBILE_FARM_TOKEN` | no | An **org** token. If set it wins over any saved credential, fixes the org, and makes an `org` argument an error. |
 

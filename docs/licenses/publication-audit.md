@@ -1,5 +1,26 @@
 # Publication audit status
 
+## Fixture follow-up — 2026-10-19
+
+Both retained APKs match the official `appium/sample-apps` repository at
+`0e92532585431d3b362c1ff12c65b54936fbe26f`, including the previously unresolved
+Selendroid blob `55cf569fb7fe1cd707a71d3fc5fef2e55cef8c3d`. The older
+`appium/sample-code` location checked below contains a different Selendroid APK.
+The exact binary source is now documented; replacing or rewriting history for
+an unknown binary origin is no longer proposed.
+
+Fixture hashes, upstream source-header evidence, Apache-2.0 licence text, and
+Android/Appium/Selendroid/Commons IO attribution are preserved under
+[tests/fixtures](../../tests/fixtures/README.md). Commons IO's notice is from
+upstream commit `5d4d09928e154d083f396a1555da72dfe9d877d1` (2.2).
+This resolves the fixture provenance/notice follow-up, not binary-release
+dependency review or approval to change repository visibility.
+
+The guide's edition wording and three broken local links have been corrected;
+contribution and private security-reporting instructions have been added.
+
+## Historical audit — 2026-10-11
+
 Checked 2026-10-11. This is an evidence record, not public-release approval.
 
 ## Dependency notices

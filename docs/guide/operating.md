@@ -213,9 +213,8 @@ npm start
 `npm start` needs `TOKENS_JSON`, `DEVICE_ID`, `SESSION_SECRET`,
 `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `ADMIN_EMAIL` and `TOKEN_ENCRYPTION_KEY`.
 
-Contributor-facing notes — how the code reaches the device, what is
-deliberately unfinished, and the traps that have cost real time — are in
-[`HANDOVER.md`](../../HANDOVER.md).
+See [Contributing](../../CONTRIBUTING.md) for local development, validation,
+and the Community/Pro source boundary.
 
 ## Email notifications
 

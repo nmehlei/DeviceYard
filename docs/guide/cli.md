@@ -66,7 +66,7 @@ touches a job needs `--org <id>`. `deviceyard whoami` lists the ids you have:
 ```bash
 deviceyard whoami
 # https://your-farm.example.com  (personal credential)
-#   1  donable
+#   1  example-team
 #   2  momentum
 ```
 
@@ -272,9 +272,8 @@ diagnosis rather than a parser error:
 | `--pr-number` | — | Git metadata is not stored against a run |
 | `--pr-url` | — | Git metadata is not stored against a run |
 
-If you need one of these, say so — several are farm capabilities rather than
-CLI gaps, and the ones worth building are tracked in
-[open issues](../open_issues.md).
+For feature requests, describe your use case in a repository issue. Several
+of these are farm capabilities rather than CLI gaps.
 
 ## Troubleshooting
 
