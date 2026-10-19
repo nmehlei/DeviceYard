@@ -1,9 +1,9 @@
 # Operating the farm
 
-This repo holds the application code. The VM, DNS record and deployment
-scripts live in [NME-IaC's `solutions/mobile-device-farm`
-playbook](https://github.com/nme/NME-IaC/tree/main/solutions/mobile-device-farm),
-which deploys it as a systemd service.
+DeviceYard runs on infrastructure you control. Start with
+[Getting started](getting-started.md) for a native installation, or the
+[Linux container guide](container.md) for Docker. This guide covers
+configuration, persistence, and day-to-day operation.
 
 ## API discovery
 

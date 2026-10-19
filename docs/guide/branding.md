@@ -13,9 +13,8 @@ diameter of clear space around it. Avoid shadows, gradients, and stretching.
 - [Light-background SVG](../../dashboard/public/brand/deviceyard-mark.svg)
 - [Dark-background SVG](../../dashboard/public/brand/deviceyard-mark-dark.svg)
 
-SVGs are the editable production masters. Run `node scripts/generate-brand-assets.cjs`
-after installing dashboard dependencies to regenerate the favicon and Apple icon.
-The dashboard uses the inverse
+SVGs are the editable production masters. Preserve the approved mark when
+creating additional sizes or formats. The dashboard uses the inverse
 mark, paired with a live-text wordmark for accessibility. Email retains its
 live-text DeviceYard wordmark so clients that block images still show the brand.
 

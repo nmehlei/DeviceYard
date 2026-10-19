@@ -14,6 +14,7 @@ by device tags. See [editions](editions.md) for the distinction.
 
 | You are… | Start here |
 |---|---|
+| Installing your first farm | [Getting started](getting-started.md) |
 | Running flows from your terminal or CI | [The `deviceyard` CLI](cli.md) |
 | Migrating from `maestro cloud` or `dcd cloud` | [The `deviceyard` CLI](cli.md#migrating-from-maestro-cloud-or-dcd-cloud) |
 | Wiring a CI pipeline to run flows | [Running flows](running-flows.md) |
