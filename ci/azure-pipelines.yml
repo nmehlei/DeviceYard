@@ -18,11 +18,19 @@ pool:
 
 steps:
   - checkout: self
+    fetchDepth: 0
+    fetchTags: true
     persistCredentials: false
+  - task: UseDotNet@2
+    inputs:
+      packageType: sdk
+      version: '8.0.x'
+  - script: dotnet tool restore
+    displayName: Restore pinned GitVersion 5.12.0
   - task: NodeTool@0
     inputs:
       versionSpec: '22.x'
-  - script: node --test ci/native/version.test.cjs
+  - script: node --test ci/native/version.test.cjs ci/native/git-version.test.cjs
     displayName: Test shared native version selection
   - script: node ci/native/version.cjs
     displayName: Select shared native archive version
