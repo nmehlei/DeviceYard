@@ -27,7 +27,21 @@ prerequisites; use the tested Node 22 runtime and the existing farm toolchain.
 Keep configuration and DATA_DIR outside the replacement archive. Do not run two
 instances against one data directory or use a test instance with live devices.
 
-Versions `0.0.0-ci.<build-id>` identify CI candidates, not stable releases. The
+The root Community `package.json` is the shared native release-version source.
+Pro invokes `core/ci/native/version.cjs` from its pinned Community checkout and
+inherits that same version; it must not choose an independent release number.
+Both editions of the first stable release are `1.0.0`.
+
+Normal builds use `<shared-version>-ci.<build-id>` (for example
+`1.0.0-ci.123`). Build IDs identify distinct CI artifacts; they do not define
+separate Community and Pro release series. For stable packaging, manually run
+the edition's pipeline on `main` with `nativeReleaseMode=stable`. There is no
+free-form version input. Before promotion, confirm both edition manifests have
+the same version and the same Community source revision. If Pro needs a release
+fix, advance the shared version in Community and update Pro's pin before building
+the pair. Never republish different bytes under an existing stable version.
+
+Legacy versions `0.0.0-ci.<build-id>` also identify CI candidates. The
 manifest deliberately has `productionReady: false`. Distribution notice/source
 review, Pro activation, promotion authorization and migration rehearsal remain
 release gates. The runtime archive is not a corresponding-source distribution.
