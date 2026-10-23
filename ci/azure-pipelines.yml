@@ -5,16 +5,37 @@ pr:
   branches:
     include: [main]
 
+parameters:
+  - name: nativeReleaseMode
+    displayName: Native packaging mode (shared Community version)
+    type: string
+    default: candidate
+    values: [candidate, stable]
+
 # Public contributions must never execute on the private Default pool.
 pool:
   vmImage: ubuntu-latest
 
 steps:
   - checkout: self
+    fetchDepth: 0
+    fetchTags: true
     persistCredentials: false
+  - task: UseDotNet@2
+    inputs:
+      packageType: sdk
+      version: '8.0.x'
+  - script: dotnet tool restore
+    displayName: Restore pinned GitVersion 5.12.0
   - task: NodeTool@0
     inputs:
       versionSpec: '22.x'
+  - script: node --test ci/native/version.test.cjs ci/native/git-version.test.cjs
+    displayName: Test shared native version selection
+  - script: node ci/native/version.cjs
+    displayName: Select shared native archive version
+    env:
+      NATIVE_RELEASE_MODE: ${{ parameters.nativeReleaseMode }}
   - script: npm ci
     displayName: Install server and CLI dependencies
   - script: npm --prefix dashboard ci
@@ -31,9 +52,9 @@ steps:
     displayName: Test native packaging boundaries
   - script: node ci/notices.cjs
     displayName: Collect release-platform dependency notices
-  - script: node ci/native/package.cjs "$(Build.ArtifactStagingDirectory)/native" "0.0.0-ci.$(Build.BuildId)"
+  - script: node ci/native/package.cjs "$(Build.ArtifactStagingDirectory)/native" "$(nativeVersion)"
     displayName: Package native Community candidate
-  - script: node ci/native/smoke.cjs "$(Build.ArtifactStagingDirectory)/native/deviceyard-community-0.0.0-ci.$(Build.BuildId)-linux-x64.tar.gz.json"
+  - script: node ci/native/smoke.cjs "$(Build.ArtifactStagingDirectory)/native/deviceyard-community-$(nativeVersion)-linux-x64.tar.gz.json"
     displayName: Verify extracted native Community archive
   - task: PublishPipelineArtifact@1
     displayName: Retain private native candidate (no release promotion)

@@ -27,7 +27,29 @@ prerequisites; use the tested Node 22 runtime and the existing farm toolchain.
 Keep configuration and DATA_DIR outside the replacement archive. Do not run two
 instances against one data directory or use a test instance with live devices.
 
-Versions `0.0.0-ci.<build-id>` identify CI candidates, not stable releases. The
+Community Git history and `GitVersion.yml` are the shared release-version source.
+The local .NET tool manifest pins GitVersion **5.12.0**, using **Mainline** mode
+as the original MobileDeviceFarm pipeline did. Full history and tags are required;
+shallow checkouts fail closed. The release number is calculated from history and
+release tags, not forced to a package.json value or a fixed `next-version`.
+Pro invokes `core/ci/native/version.cjs` from its pinned Community checkout and
+inherits that same version; it must not choose an independent release number.
+Calculation uses an isolated mainline checkout at that exact commit, without
+later remote branches/tags or Pro build-server variables influencing the result.
+Ordinary main commits/merges increment the patch version. Use `+semver: minor`
+or `+semver: major` for deliberate larger increments, or `+semver: none` to skip.
+
+Normal builds use `<shared-version>-ci.<build-id>` (for example
+`1.0.0-ci.123`). Build IDs identify distinct CI artifacts; they do not define
+separate Community and Pro release series. For stable packaging, manually run
+the edition's pipeline on `main` with `nativeReleaseMode=stable`. There is no
+free-form version input. Before promotion, confirm both edition manifests have
+the same version and the same Community source revision. If Pro needs a release
+fix, record the release coordination in Community (a mainline commit advances
+the shared version) and update Pro's pin before building
+the pair. Never republish different bytes under an existing stable version.
+
+Legacy versions `0.0.0-ci.<build-id>` also identify CI candidates. The
 manifest deliberately has `productionReady: false`. Distribution notice/source
 review, Pro activation, promotion authorization and migration rehearsal remain
 release gates. The runtime archive is not a corresponding-source distribution.
