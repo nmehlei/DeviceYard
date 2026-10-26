@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { NavBar } from "../components/NavBar";
+import { GlobalSetupWarningBar } from "../components/SetupWarningBar";
 
 export const metadata: Metadata = {
   title: "DeviceYard",
@@ -13,6 +14,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <head><script dangerouslySetInnerHTML={{ __html: "try{var t=localStorage.getItem('deviceyard-appearance');document.documentElement.dataset.theme=t==='light'||t==='dark'?t:'system'}catch{}" }} /></head>
       <body className="min-h-full flex flex-col">
         <NavBar />
+        <GlobalSetupWarningBar />
         {children}
       </body>
     </html>

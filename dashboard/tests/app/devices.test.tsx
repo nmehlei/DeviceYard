@@ -225,6 +225,14 @@ describe("setup checks", () => {
     expect(screen.getAllByText(/Required device settings/)).toHaveLength(2);
   });
 
+  test("the card carries the anchor the app-wide warning bar links to", async () => {
+    (api.fetchDevices as jest.Mock).mockResolvedValue({ devices: [NEEDS_SETUP], runnerVersion: "0.1.25", artifactBytes: 0 });
+    render(<DevicesPage />);
+
+    await screen.findByText("USB debugging approval expires");
+    expect(document.getElementById(`device-${NEEDS_SETUP.id}`)).toHaveTextContent(NEEDS_SETUP.label);
+  });
+
   test("unknown and passing checks raise no warning", async () => {
     const quiet: DeviceEntry = {
       ...ACTIVE,
