@@ -1,4 +1,4 @@
-import { runMaestroFlow, getMaestroVersion, versionCheckRunner, defaultRunner, type CommandRunner } from "../src/maestro";
+import { runMaestroFlow, getMaestroVersion, versionCheckRunner, defaultRunner, createRunner, type CommandRunner } from "../src/maestro";
 
 test("passed is true when the command exits 0", async () => {
   const fakeRunner: CommandRunner = async () => ({
@@ -53,6 +53,14 @@ test("defaultRunner reports code 1 and surfaces the spawn error message when the
   expect(result.code).toBe(1);
   expect(result.stderr).toContain("failed to launch");
   expect(result.stderr).toContain("definitely-not-a-real-binary-xyz");
+});
+
+test("a command killed by the runner's timeout is reported as a timeout, not as a launch failure", async () => {
+  const result = await createRunner(200)("sleep", ["5"]);
+
+  expect(result.code).toBe(1);
+  expect(result.stderr).toContain('"sleep" timed out after 0.2s and was killed');
+  expect(result.stderr).not.toContain("failed to launch");
 });
 
 test("getMaestroVersion returns the trimmed banner maestro --version prints", async () => {

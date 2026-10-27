@@ -199,9 +199,12 @@ the field and the limit, and leaves nothing on disk.
   with the database. Use [maintenance mode](maintenance.md) to drain running
   jobs before an upgrade and explicitly resume afterwards. Older releases'
   transient uploads cannot be recovered retroactively.
-- **Flows get a 15-minute timeout** (`DEFAULT_TIMEOUT_MS`). Device status
-  checks get their own 5-second budget instead, so a wedged device cannot
-  hold an ops endpoint for a quarter of an hour.
+- **Flows get a 15-minute timeout** (`DEFAULT_TIMEOUT_MS`). The APK install
+  gets 5 minutes (`INSTALL_TIMEOUT_MS`), and device status checks get 5
+  seconds, so a wedged device cannot hold a job or an ops endpoint for a
+  quarter of an hour. A command killed this way reports
+  `"adb" timed out after 300s and was killed` in the step's output, not
+  `failed to launch`.
 - **`DATA_DIR` survives deploys, the bundle does not.** This is the single
   most important operational fact about the layout.
 
