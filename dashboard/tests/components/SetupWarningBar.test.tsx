@@ -54,6 +54,14 @@ test("Hide removes the bar and keeps it hidden after a remount", () => {
   expect(screen.queryByRole("status")).not.toBeInTheDocument();
 });
 
+test("a hidden check that gets fixed and later regresses shows the bar again", () => {
+  const { rerender } = render(<SetupWarningBar devices={[device("d1", [{ id: "a", ok: false }])]} admin />);
+  fireEvent.click(screen.getByRole("button", { name: /hide/i }));
+  rerender(<SetupWarningBar devices={[device("d1", [{ id: "a", ok: true }])]} admin />);
+  rerender(<SetupWarningBar devices={[device("d1", [{ id: "a", ok: false }])]} admin />);
+  expect(screen.getByRole("status")).toHaveTextContent("Phone d1: Title a");
+});
+
 test("a check that starts failing after a dismissal shows the bar again", () => {
   const { rerender } = render(<SetupWarningBar devices={[device("d1", [{ id: "a", ok: false }])]} admin />);
   fireEvent.click(screen.getByRole("button", { name: /hide/i }));

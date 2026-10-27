@@ -35,6 +35,19 @@ export function pendingSetupWarnings(devices: readonly DeviceEntry[]): SetupWarn
     );
 }
 
+/** Drops dismissals for checks that now read as applied, so a setting that
+ * is fixed and later switched back on (Google Play services can do that)
+ * warns again. Returns the same set when nothing changed. */
+export function pruneDismissed(dismissed: ReadonlySet<string>, devices: readonly DeviceEntry[]): ReadonlySet<string> {
+  const applied = new Set(
+    devices.flatMap((device) =>
+      (device.setupChecks ?? []).filter((check) => check.ok === true).map((check) => `${device.id}:${check.id}`)
+    )
+  );
+  if (![...dismissed].some((key) => applied.has(key))) return dismissed;
+  return new Set([...dismissed].filter((key) => !applied.has(key)));
+}
+
 export function visibleWarnings(warnings: readonly SetupWarning[], dismissed: ReadonlySet<string>): SetupWarning[] {
   return warnings.filter((warning) => !dismissed.has(warningKey(warning)));
 }

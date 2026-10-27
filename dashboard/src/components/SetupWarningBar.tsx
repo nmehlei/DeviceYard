@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { fetchDevices, type DeviceEntry } from "../lib/api";
 import { usePolledDevices } from "../lib/usePolledDevices";
 import { useSessionInfo } from "../lib/useSessionInfo";
-import { loadDismissed, pendingSetupWarnings, saveDismissed, visibleWarnings, warningKey } from "../lib/setupWarnings";
+import { loadDismissed, pendingSetupWarnings, pruneDismissed, saveDismissed, visibleWarnings, warningKey } from "../lib/setupWarnings";
 
 const POLL_INTERVAL_MS = 60_000;
 
@@ -15,7 +15,14 @@ const POLL_INTERVAL_MS = 60_000;
  * this only links there, and can be hidden by a viewer who does not want it.
  */
 export function SetupWarningBar({ devices, admin }: { devices: readonly DeviceEntry[]; admin: boolean }) {
-  const [dismissed, setDismissed] = useState(loadDismissed);
+  const [dismissed, setDismissed] = useState<ReadonlySet<string>>(loadDismissed);
+  const pruned = pruneDismissed(dismissed, devices);
+  if (pruned !== dismissed) {
+    // Adjusting state while rendering, React's pattern for state derived
+    // from props: no extra effect pass, no flash of a stale bar.
+    saveDismissed(pruned);
+    setDismissed(pruned);
+  }
   const warnings = visibleWarnings(pendingSetupWarnings(devices), dismissed);
   if (warnings.length === 0) return null;
 
