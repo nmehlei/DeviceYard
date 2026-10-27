@@ -133,6 +133,16 @@ test("GET /api/version reports \"unknown\" for the runner version when BUILD_INF
   readSpy.mockRestore();
 });
 
+test("both version API modes expose the pinned core independently of Pro", async () => {
+  const spy = jest.spyOn(fs, "readFileSync").mockReturnValue(`version=1.8.0\nedition=pro\ncoreVersion=1.5.0\ncore=${"a".repeat(40)}\npro=${"b".repeat(40)}\n`);
+  try {
+    for (const query of ["", "?waitForMaestro=false"]) {
+      const res = await request(app({ runner: maestroVersionRunner("2.6.1") })).get(`/api/version${query}`);
+      expect(res.body).toMatchObject({version:"1.8.0", edition:"pro", coreVersion:"1.5.0", revisions:{core:"a".repeat(40), pro:"b".repeat(40)}});
+    }
+  } finally { spy.mockRestore(); }
+});
+
 test("GET /api/version reports \"unknown\" for maestroVersion when maestro --version fails", async () => {
   const res = await request(app({ runner: maestroVersionRunner("", 1) })).get("/api/version");
 

@@ -39,10 +39,15 @@ export default function AboutPage() {
       <div className="max-w-xl rounded-lg border border-(--border) bg-(--surface) p-5">
         <div className="mb-6"><Brand size={56} /></div>
         <dl className="text-sm">
-          <dt className="text-xs uppercase tracking-wide text-(--muted)">DeviceYard</dt>
+          <dt className="text-xs uppercase tracking-wide text-(--muted)">{info?.edition === "pro" ? "DeviceYard Pro" : "DeviceYard"}</dt>
           <dd className="mono mt-1 text-(--foreground)">
             {info?.version ?? <Skeleton className="h-4 w-16" />}
           </dd>
+
+          {info?.edition === "pro" && info.coreVersion && <>
+            <dt className="mt-3 text-xs uppercase tracking-wide text-(--muted)">Community core</dt>
+            <dd className="mono mt-1 text-(--foreground)">{info.coreVersion}</dd>
+          </>}
 
           <dt className="mt-3 text-xs uppercase tracking-wide text-(--muted)">Maestro</dt>
           <dd className="mono mt-1 text-(--foreground)">

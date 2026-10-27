@@ -60,6 +60,8 @@ async function smoke(manifestPath) {
     if (edition.edition !== manifest.edition || edition.multiDevice !== false) throw Error('Incorrect native edition or unlicensed fallback');
     const version = await (await call('/api/version?waitForMaestro=false')).json();
     if (version.version !== manifest.version) throw Error('Native version metadata is not used by the runtime');
+    if (version.edition !== manifest.edition || version.coreVersion !== manifest.coreVersion ||
+        JSON.stringify(version.revisions) !== JSON.stringify(manifest.revisions)) throw Error('Native source metadata differs from the manifest');
     for (const route of ['/api-docs', '/api/mcp-client', '/cli/install.sh']) await call(route);
     const enabled = await (await call('/api/admin/maintenance', 'PUT', {requested:true})).json();
     if (enabled.state !== 'ready') throw Error('Empty native farm did not drain');

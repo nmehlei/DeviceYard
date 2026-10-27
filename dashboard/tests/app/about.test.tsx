@@ -35,6 +35,15 @@ test("shows the application version while Maestro is still starting", async () =
   unmount();
 });
 
+test("distinguishes the Pro release from its Community core", async () => {
+  (api.fetchVersion as jest.Mock).mockResolvedValue({ version: "1.8.0", edition: "pro", coreVersion: "1.5.0", maestroVersion: "2.6.1" });
+  render(<AboutPage />);
+  expect(await screen.findByText("DeviceYard Pro")).toBeInTheDocument();
+  expect(screen.getByText("1.8.0")).toBeInTheDocument();
+  expect(screen.getByText("Community core")).toBeInTheDocument();
+  expect(screen.getByText("1.5.0")).toBeInTheDocument();
+});
+
 test("shows \"unknown\" for both if fetching the version fails", async () => {
   (api.fetchVersion as jest.Mock).mockRejectedValue(new Error("network error"));
   render(<AboutPage />);

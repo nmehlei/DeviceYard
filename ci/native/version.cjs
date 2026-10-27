@@ -19,7 +19,7 @@ module.exports = {nativeVersion};
 if (require.main === module) {
   try {
     if (process.env.NATIVE_RELEASE_MODE === 'stable') {
-      // In Pro, a main build must also pin a merged Community revision.
+      // Stable artifacts must come from a merged Community revision.
       execFileSync('git',['merge-base','--is-ancestor','HEAD','refs/remotes/origin/main'],
         {cwd:path.resolve(__dirname,'../..'),stdio:'pipe'});
     }
@@ -27,7 +27,7 @@ if (require.main === module) {
     const version = nativeVersion({mode:process.env.NATIVE_RELEASE_MODE, version:baseVersion,
       buildId:process.env.BUILD_BUILDID, reason:process.env.BUILD_REASON, branch:process.env.BUILD_SOURCEBRANCH});
     console.log(`##vso[task.setvariable variable=nativeVersion]${version}`);
-    console.log(`Shared native version: ${version}; promotion remains separate`);
+    console.log(`Community native version: ${version}; promotion remains separate`);
   } catch {
     console.error('Native version rejected; verify full Community history, restored GitVersion 5.12.0 and packaging mode');
     process.exitCode = 1;

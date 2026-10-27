@@ -520,6 +520,9 @@ export async function fetchDevices(
 
 export interface VersionInfo {
   version: string;
+  edition?: "community" | "pro";
+  coreVersion?: string;
+  revisions?: { core?: string; pro?: string };
   maestroVersion: string;
   maestroPending?: boolean;
 }

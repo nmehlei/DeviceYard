@@ -7,7 +7,7 @@ pr:
 
 parameters:
   - name: nativeReleaseMode
-    displayName: Native packaging mode (shared Community version)
+    displayName: Native packaging mode (Community version)
     type: string
     default: candidate
     values: [candidate, stable]
@@ -31,9 +31,9 @@ steps:
     inputs:
       versionSpec: '22.x'
   - script: node --test ci/native/version.test.cjs ci/native/git-version.test.cjs
-    displayName: Test shared native version selection
+    displayName: Test Community native version selection
   - script: node ci/native/version.cjs
-    displayName: Select shared native archive version
+    displayName: Select Community native archive version
     env:
       NATIVE_RELEASE_MODE: ${{ parameters.nativeReleaseMode }}
   - script: npm ci

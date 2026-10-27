@@ -3,10 +3,21 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const {runtimePackage} = require('./package.cjs');
+const {runtimePackage, buildMetadata} = require('./package.cjs');
 const {smoke} = require('./smoke.cjs');
 const {approvedManifest} = require('./promote.cjs');
 const {createHash} = require('node:crypto');
+
+test('Pro archive metadata preserves independent edition and core versions', () => {
+  const revisions = {core:'a'.repeat(40), pro:'b'.repeat(40)};
+  const result = buildMetadata({edition:'pro', version:'1.8.0', coreVersion:'1.5.0', revisions, node:'>=22.13.0', trustedKeyIds:[]});
+  assert.equal(result.metadata.coreVersion, '1.5.0');
+  assert.equal(result.metadata.version, '1.8.0');
+  assert.match(result.info, /coreVersion=1.5.0\n/);
+  assert.match(result.info, /version=1.8.0\n/);
+  assert.deepEqual(result.metadata.revisions, revisions);
+  assert.throws(() => buildMetadata({edition:'pro', version:'1.8.0', coreVersion:'1.0.0\nedition=community', revisions}), /core version/);
+});
 
 test('standalone dependency manifest removes source workspace links without changing runtime versions or the source lock', () => {
   const root = path.resolve(__dirname, '../..');

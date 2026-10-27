@@ -3,12 +3,12 @@ const assert = require('node:assert/strict');
 const {nativeVersion} = require('./version.cjs');
 const version = '1.2.3';
 
-test('ordinary builds use the shared GitVersion result', () => {
+test('ordinary builds use the edition GitVersion result', () => {
   for (const reason of ['Manual','IndividualCI','PullRequest']) {
     assert.equal(nativeVersion({mode:'candidate',version:'1.2.3',buildId:'123',reason}), '1.2.3-ci.123');
   }
 });
-test('stable packaging uses the shared version only on manual main builds', () => {
+test('stable packaging uses the edition version only on manual main builds', () => {
   assert.equal(nativeVersion({mode:'stable',version:'1.2.3',reason:'Manual',branch:'refs/heads/main'}),'1.2.3');
   for (const reason of ['PullRequest','IndividualCI','Schedule']) {
     assert.throws(()=>nativeVersion({mode:'stable',version,reason,branch:'refs/heads/main'}));
