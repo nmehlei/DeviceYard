@@ -118,7 +118,13 @@ through, never written to disk and never added to the artifacts table.
 setting that is wrong (see operating.md, "Required device settings"), and
 the summary row adds a **Needs setup** count. Admins get a **Fix** button that
 applies the setting over adb and reads it back; everyone else is told to ask
-an admin. A device that cannot be read (offline, unauthorized) shows no
+an admin. The same warnings also appear app-wide in a bar below the
+navigation: one open check is named with its device and links to that card
+(`/devices#device-<id>`), several are summarised and link to the Devices page.
+**Hide** dismisses the warnings currently shown, in this browser only; a check
+that starts failing later, or fails again after being fixed, shows the bar
+again. Devices the current edition does not allow are left out of the bar.
+A device that cannot be read (offline, unauthorized) shows no
 warning rather than a guess.
 
 ## Full route contracts

@@ -72,8 +72,11 @@ Registration performs no adb calls of its own; it just records the serial.
 Two Developer Options settings must be set on every farm device. The
 dashboard checks both on every poll and shows a warning on the device card
 when either is wrong; an admin can fix it there with **Fix** (recorded in the
-device's activity log as `setup_fix`). DeviceYard never changes them on its
-own.
+device's activity log as `setup_fix`). A bar below the navigation repeats the
+warning on every page and links to that card; anyone who decides not to apply
+the setting can hide it with **Hide** (remembered per browser, per device and
+check, and forgotten once the check reads as applied). DeviceYard never
+changes them on its own.
 
 | Check | Developer Options | adb equivalent |
 |---|---|---|
@@ -90,7 +93,11 @@ farm's S10 on 2026-10-02.
 **Why adb install verification matters.** With "Verify apps over USB" on,
 Play Protect checks each APK the farm installs. For a build it does not
 recognise (a local debug build, for example) that check can stop on an
-on-screen prompt, and the job's install step hangs until it times out. Only
+on-screen prompt, and the job's install step hangs until it times out.
+Confirmed on the farm's S10 on 2026-10-26: Play Protect asked to upload an
+unrecognised 53 MB debug build for a cloud scan, and the install session then
+stayed at 90% long after the 15-minute job timeout; with the setting at `0`
+the same APK installed in 6 seconds. Only
 installs pushed by the farm host skip the check; Play Protect itself stays
 on. Google Play services may switch it back on; the warning then reappears.
 
