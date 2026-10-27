@@ -27,27 +27,30 @@ prerequisites; use the tested Node 22 runtime and the existing farm toolchain.
 Keep configuration and DATA_DIR outside the replacement archive. Do not run two
 instances against one data directory or use a test instance with live devices.
 
-Community Git history and `GitVersion.yml` are the shared release-version source.
+Each edition's Git history and `GitVersion.yml` determine its own release version.
 The local .NET tool manifest pins GitVersion **5.12.0**, using **Mainline** mode
 as the original MobileDeviceFarm pipeline did. Full history and tags are required;
 shallow checkouts fail closed. The release number is calculated from history and
 release tags, not forced to a package.json value or a fixed `next-version`.
-Pro invokes `core/ci/native/version.cjs` from its pinned Community checkout and
-inherits that same version; it must not choose an independent release number.
+Pro calculates its version from the Pro repository and separately records the
+Community core version calculated at its exact submodule pin.
 Calculation uses an isolated mainline checkout at that exact commit, without
 later remote branches/tags or Pro build-server variables influencing the result.
 Ordinary main commits/merges increment the patch version. Use `+semver: minor`
 or `+semver: major` for deliberate larger increments, or `+semver: none` to skip.
 
-Normal builds use `<shared-version>-ci.<build-id>` (for example
-`1.0.0-ci.123`). Build IDs identify distinct CI artifacts; they do not define
-separate Community and Pro release series. For stable packaging, manually run
+Normal builds use `<edition-version>-ci.<build-id>` (for example
+`1.0.0-ci.123`). Community and Pro have independent release series.
+For stable packaging, manually run
 the edition's pipeline on `main` with `nativeReleaseMode=stable`. There is no
-free-form version input. Before promotion, confirm both edition manifests have
-the same version and the same Community source revision. If Pro needs a release
-fix, record the release coordination in Community (a mainline commit advances
-the shared version) and update Pro's pin before building
-the pair. Never republish different bytes under an existing stable version.
+free-form version input. Pro-only changes require no Community release or
+coordination commit. When adopting Community changes in Pro, classify the
+user-visible impact in the Pro merge message (`+semver: minor` or `major` where
+appropriate); GitVersion cannot infer the impact of a submodule update.
+Pro's manifest and About page report its Community core version, and the manifest
+and version API retain both exact source revisions. Version equality across
+editions is not a compatibility guarantee; the committed pin is authoritative.
+Never republish different bytes under an existing stable version.
 
 Legacy versions `0.0.0-ci.<build-id>` also identify CI candidates. The
 manifest deliberately has `productionReady: false`. Distribution notice/source

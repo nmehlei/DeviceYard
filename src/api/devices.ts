@@ -3,7 +3,7 @@ import { Router, type Request, type Response, type NextFunction } from "express"
 import { type CommandRunner, createRunner, getMaestroVersion } from "../maestro";
 import { log } from "../telemetry/log";
 import { captureDeviceScreenshot, type ScreenshotCapturer } from "../screenshot";
-import { readVersion } from "../version";
+import { readVersion, readBuildInfo } from "../version";
 import type { JobRepository } from "../store/jobRepository";
 import type { DeviceRepository } from "../store/deviceRepository";
 import type { ControlLeases } from "../control/leases";
@@ -509,10 +509,10 @@ export function deviceRoutes(deps: {
     const stale = maestroVersion === undefined || Date.now() - versionCheckedAt > 5 * 60_000;
     if (req.query.waitForMaestro === "false") {
       if (stale) void checkVersion();
-      res.status(200).json({ version: readVersion(), maestroVersion: maestroVersion ?? "unknown", maestroPending: !!versionCheck });
+      res.status(200).json({ ...readBuildInfo(), maestroVersion: maestroVersion ?? "unknown", maestroPending: !!versionCheck });
       return;
     }
-    res.status(200).json({ version: readVersion(), maestroVersion: stale ? await checkVersion() : maestroVersion });
+    res.status(200).json({ ...readBuildInfo(), maestroVersion: stale ? await checkVersion() : maestroVersion });
   });
 
   return router;

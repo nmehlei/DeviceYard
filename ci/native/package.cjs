@@ -20,12 +20,23 @@ function runtimePackage(root) {
   return {pkg, lock};
 }
 
-function packageNative({root, coreRoot = root, edition = 'community', entry = 'entry.js', version, output, revisions, trustedKeyIds = []}) {
+function buildMetadata({edition, version, coreVersion, revisions, node, trustedKeyIds = []}) {
+  if (coreVersion !== undefined && !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(coreVersion)) throw Error('Invalid core version');
+  const info = `version=${version}\nedition=${edition}\nplatform=linux-x64\n${coreVersion === undefined ? '' : `coreVersion=${coreVersion}\n`}${Object.entries(revisions).map(([k,v]) => `${k}=${v}`).join('\n')}\n`;
+  const metadata = {schemaVersion:1, edition, version, ...(coreVersion === undefined ? {} : {coreVersion}),
+    platform:'linux-x64', node, revisions, trustedKeyIds, productionReady:false, entrypoint:'dist/index.js'};
+  return {info, metadata};
+}
+
+function packageNative({root, coreRoot = root, edition = 'community', entry = 'entry.js', version, coreVersion, output, revisions, trustedKeyIds = []}) {
   if (process.platform !== 'linux' || process.arch !== 'x64') throw Error('Native candidates currently require a Linux x64 builder');
   if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?$/.test(version || '')) throw Error('Invalid release version');
   if (!['community', 'pro'].includes(edition)) throw Error('Invalid edition');
   if (!revisions || !Object.values(revisions).every(value => /^[a-f0-9]{40}$/.test(value))) throw Error('Full source revisions required');
   if (!['entry.js', 'src/entry.js'].includes(entry)) throw Error('Invalid edition entrypoint');
+  // Validate all metadata before installing dependencies or creating an archive.
+  const {info, metadata} = buildMetadata({edition, version, coreVersion, revisions,
+    node:JSON.parse(fs.readFileSync(path.join(root, 'package.json'))).engines.node, trustedKeyIds});
   root = path.resolve(root); output = path.resolve(output);
   fs.mkdirSync(output, {recursive:true});
   const archiveName = `deviceyard-${edition}-${version}-linux-x64.tar.gz`;
@@ -51,11 +62,8 @@ function packageNative({root, coreRoot = root, edition = 'community', entry = 'e
     if (!fs.statSync(noticeFile).size) throw Error('Generate release-platform dependency notices before packaging');
     fs.copyFileSync(noticeFile, path.join(stage, 'notices/dependencies.json'));
     if (edition === 'pro') fs.copyFileSync(path.join(root, 'PRO-LICENSE'), path.join(stage, 'PRO-LICENSE'));
-    const info = `version=${version}\nedition=${edition}\nplatform=linux-x64\n${Object.entries(revisions).map(([k,v]) => `${k}=${v}`).join('\n')}\n`;
     fs.writeFileSync(path.join(stage, 'BUILD_INFO'), info);
     fs.writeFileSync(path.join(stage, 'dist/BUILD_INFO'), info);
-    const metadata = {schemaVersion:1, edition, version, platform:'linux-x64', node:pkg.engines.node,
-      revisions, trustedKeyIds, productionReady:false, entrypoint:'dist/index.js'};
     fs.writeFileSync(path.join(stage, 'release.json'), JSON.stringify(metadata, null, 2) + '\n');
     execFileSync('tar', ['-czf', path.join(temp, archiveName), '-C', stage, '.']);
     const sha256 = crypto.createHash('sha256').update(fs.readFileSync(path.join(temp, archiveName))).digest('hex');
@@ -65,7 +73,7 @@ function packageNative({root, coreRoot = root, edition = 'community', entry = 'e
     return manifestPath;
   } finally { fs.rmSync(temp, {recursive:true, force:true}); }
 }
-module.exports = {packageNative, runtimePackage};
+module.exports = {packageNative, runtimePackage, buildMetadata};
 if (require.main === module) {
   try {
     const root = path.resolve(__dirname, '../..');
