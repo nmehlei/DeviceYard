@@ -1,5 +1,5 @@
-import { installApk } from "../src/install";
-import type { CommandRunner } from "../src/maestro";
+import { INSTALL_TIMEOUT_MS, installApk } from "../src/install";
+import { DEFAULT_TIMEOUT_MS, type CommandRunner } from "../src/maestro";
 
 test("passed is true when the command exits 0", async () => {
   const fakeRunner: CommandRunner = async () => ({
@@ -146,4 +146,9 @@ test("an unrelated failure is not retried", async () => {
   expect(result.passed).toBe(false);
   // One attempt only - no uninstall, no retry.
   expect(calls).toHaveLength(1);
+});
+
+test("an install gives up well before the job's own timeout, so a hung install fails the job with its own error", () => {
+  expect(INSTALL_TIMEOUT_MS).toBe(5 * 60 * 1000);
+  expect(INSTALL_TIMEOUT_MS).toBeLessThan(DEFAULT_TIMEOUT_MS);
 });

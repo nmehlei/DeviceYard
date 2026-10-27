@@ -1,7 +1,6 @@
-import { execFile } from "node:child_process";
 import type { MaintenanceCoordinator } from '../maintenance/coordinator';
 import { Router, type Request, type Response, type NextFunction } from "express";
-import { type CommandRunner, getMaestroVersion } from "../maestro";
+import { type CommandRunner, createRunner, getMaestroVersion } from "../maestro";
 import { log } from "../telemetry/log";
 import { captureDeviceScreenshot, type ScreenshotCapturer } from "../screenshot";
 import { readVersion, readBuildInfo } from "../version";
@@ -25,17 +24,7 @@ export type { ScreenshotCapturer };
  */
 const DEVICE_STATUS_TIMEOUT_MS = 5_000;
 
-export const deviceOpsRunner: CommandRunner = (file, args) =>
-  new Promise((resolve) => {
-    execFile(file, args, { timeout: DEVICE_STATUS_TIMEOUT_MS, killSignal: "SIGKILL" }, (error, stdout, stderr) => {
-      if (error && typeof error.code !== "number") {
-        const spawnNote = `[runner] failed to launch "${file}": ${error.message}`;
-        resolve({ code: 1, stdout, stderr: stderr ? `${spawnNote}\n${stderr}` : spawnNote });
-        return;
-      }
-      resolve({ code: error ? (error.code as number) : 0, stdout, stderr });
-    });
-  });
+export const deviceOpsRunner: CommandRunner = createRunner(DEVICE_STATUS_TIMEOUT_MS);
 
 const SETUP_INSTRUCTIONS: string[] = [
   "Connect the device to the farm host over USB.",

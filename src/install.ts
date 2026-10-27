@@ -1,5 +1,18 @@
 import type { CommandRunner } from "./maestro";
-import { defaultRunner } from "./maestro";
+import { createRunner } from "./maestro";
+
+/**
+ * An install that has not finished after 5 minutes is not going to. A
+ * multi-hundred-MB APK takes well under a minute over USB; what takes longer
+ * is a device stuck on something nobody will answer, such as Play Protect
+ * waiting on an upload consent (docs/guide/operating.md, "Required device
+ * settings"). Failing here names the install as the step that hung, instead
+ * of holding the device for DEFAULT_TIMEOUT_MS, the budget sized for a
+ * whole Maestro flow.
+ */
+export const INSTALL_TIMEOUT_MS = 5 * 60 * 1000;
+
+const installRunner: CommandRunner = createRunner(INSTALL_TIMEOUT_MS);
 
 export interface InstallResult {
   passed: boolean;
@@ -11,7 +24,7 @@ export async function installApk(
   deviceId: string,
   apkPath: string,
   appId: string,
-  runner: CommandRunner = defaultRunner
+  runner: CommandRunner = installRunner
 ): Promise<InstallResult> {
   // -d allows a LOWER versionCode to replace what is installed. The farm is a
   // test device, so the APK the caller just uploaded is by definition the one
