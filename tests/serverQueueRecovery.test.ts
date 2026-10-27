@@ -63,5 +63,18 @@ test('a queued upload executes after the server and database reopen without its 
       await new Promise(resolve => setTimeout(resolve, 20));
     expect(stores.repo.getJob(submitted.body.id)?.status).toBe('done');
     expect(installed).toBe(true); expect(receivedEnv).toBe(true);
-  } finally { app.scheduler.stop?.(); await app.control.close(); db.close(); fs.rmSync(dir, { recursive: true, force: true }); }
+  } finally {
+    app.scheduler.stop?.();
+    try {
+      // A terminal job row precedes asynchronous input cleanup. Drain the
+      // tracked operation before closing its database or deleting its files.
+      app.maintenance.setRequested(true);
+      const deadline = Date.now() + 10000;
+      while (app.maintenance.snapshot().state !== 'ready' && Date.now() < deadline)
+        await new Promise(resolve => setTimeout(resolve, 20));
+      expect(app.maintenance.snapshot().state).toBe('ready');
+    } finally {
+      await app.control.close(); db.close(); fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
 }, 30000);
