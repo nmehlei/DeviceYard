@@ -11,32 +11,36 @@ export type CommandRunner = (
  */
 export const DEFAULT_TIMEOUT_MS = 15 * 60 * 1000;
 
-export const defaultRunner: CommandRunner = (file, args) =>
-  new Promise((resolve) => {
-    execFile(
-      file,
-      args,
-      { timeout: DEFAULT_TIMEOUT_MS, killSignal: "SIGKILL" },
-      (error, stdout, stderr) => {
-        // A non-numeric error.code (e.g. the string "ENOENT") means execFile
-        // could not even launch the binary (bad PATH, missing binary) - this
-        // is distinct from the process running and exiting non-zero because
-        // a flow failed. Report `passed: false` the same way (code: 1) so
-        // existing pass/fail behavior is unchanged, but surface the spawn
-        // error's message in stderr so operators can tell "maestro ran and
-        // the test failed" apart from "maestro could not be launched at all".
+/**
+ * A runner that SIGKILLs the command once timeoutMs has passed. Each caller
+ * sizes its own budget: a Maestro flow may run for minutes, an adb status
+ * read must not.
+ */
+export function createRunner(timeoutMs: number): CommandRunner {
+  return (file, args) =>
+    new Promise((resolve) => {
+      execFile(file, args, { timeout: timeoutMs, killSignal: "SIGKILL" }, (error, stdout, stderr) => {
+        // A non-numeric error.code means the process never produced an exit
+        // code of its own: either execFile could not launch the binary at all
+        // (bad PATH, missing binary; code is a string such as "ENOENT"), or
+        // the timeout killed it (code is null, killed is true). Report
+        // `passed: false` the same way (code: 1) so existing pass/fail
+        // behavior is unchanged, but say which of the two it was - telling
+        // "adb hung" apart from "adb is missing" is the whole point of the
+        // note.
         if (error && typeof error.code !== "number") {
-          const spawnNote = `[runner] failed to launch "${file}": ${error.message}`;
-          const combinedStderr = stderr ? `${spawnNote}\n${stderr}` : spawnNote;
-          resolve({ code: 1, stdout, stderr: combinedStderr });
+          const note = error.killed
+            ? `[runner] "${file}" timed out after ${timeoutMs / 1000}s and was killed`
+            : `[runner] failed to launch "${file}": ${error.message}`;
+          resolve({ code: 1, stdout, stderr: stderr ? `${note}\n${stderr}` : note });
           return;
         }
+        resolve({ code: error ? (error.code as number) : 0, stdout, stderr });
+      });
+    });
+}
 
-        const code = error ? (error.code as number) : 0;
-        resolve({ code, stdout, stderr });
-      }
-    );
-  });
+export const defaultRunner: CommandRunner = createRunner(DEFAULT_TIMEOUT_MS);
 
 export interface FlowResult {
   flow: string;
