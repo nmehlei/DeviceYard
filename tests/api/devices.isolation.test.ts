@@ -35,10 +35,10 @@ const runner: CommandRunner = async (_f, args) => {
   return { code: 0, stdout: "", stderr: "" };
 };
 
-function app(isolationEnabled?: boolean) {
+function app(isolationEnabled?: boolean, r: CommandRunner = runner, maintenance?: unknown) {
   const a = express();
   a.use(express.json());
-  a.use(deviceRoutes({ repo: new JobRepository(db), deviceRepo, runner, isolationEnabled }));
+  a.use(deviceRoutes({ repo: new JobRepository(db), deviceRepo, runner: r, isolationEnabled, ...(maintenance ? { maintenance: maintenance as never } : {}) }));
   return a;
 }
 
@@ -50,4 +50,25 @@ test("the device list shows isolationCapable only when the edition provides isol
   const on = await request(app(true)).get("/api/devices");
   expect(on.body.devices[0].isolationCapable).toBe(true);
   expect(deviceRepo.get(ID)!.isolationCapable).toBe(true);
+});
+
+test("a probe that returns unknown keeps the stored capability", async () => {
+  deviceRepo.setIsolationCapable(ID, true);
+  const failing: CommandRunner = async (f, args) => {
+    if (args.join(" ").includes("pm list")) throw new Error("timed out");
+    return runner(f, args);
+  };
+  const res = await request(app(true, failing)).get("/api/devices");
+  expect(res.body.devices[0].isolationCapable).toBe(true);
+  expect(deviceRepo.get(ID)!.isolationCapable).toBe(true);
+});
+
+test("the maintenance-mode device list hides isolationCapable unless isolation is enabled", async () => {
+  deviceRepo.setIsolationCapable(ID, true);
+  const busy = { acquire: () => undefined, snapshot: () => ({ state: "draining" }) };
+  const off = await request(app(false, runner, busy)).get("/api/devices");
+  expect(off.body.stale).toBe(true);
+  expect(off.body.devices[0]).not.toHaveProperty("isolationCapable");
+  const on = await request(app(true, runner, busy)).get("/api/devices");
+  expect(on.body.devices[0].isolationCapable).toBe(true);
 });

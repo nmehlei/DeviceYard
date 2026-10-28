@@ -30,7 +30,7 @@ export function farmProfileName(jobId: string, ordinal?: number): string {
 export function parseUsers(stdout: string): AndroidUser[] {
   const users: AndroidUser[] = [];
   for (const line of stdout.split("\n")) {
-    const m = /UserInfo\{(\d+):([^:]*):([0-9a-fA-F]+)\}/.exec(line);
+    const m = /^\s*UserInfo\{(\d+):([^:]*):([0-9a-fA-F]+)\}(\s|$)/.exec(line);
     if (m) users.push({ id: Number(m[1]), name: m[2], flags: parseInt(m[3], 16) });
   }
   return users;
@@ -49,7 +49,8 @@ async function listUsers(deviceId: string, runner: CommandRunner): Promise<Andro
 
 export async function removeFarmProfiles(
   deviceId: string,
-  runner: CommandRunner = profileRunner
+  runner: CommandRunner = profileRunner,
+  isDeviceBusy: (deviceId: string) => boolean = () => false
 ): Promise<{ removed: number[]; warnings: string[] }> {
   const removed: number[] = [];
   const warnings: string[] = [];
@@ -60,6 +61,12 @@ export async function removeFarmProfiles(
     return { removed, warnings: [`could not list users: ${(err as Error).message}`] };
   }
   for (const u of users.filter(isFarmProfile)) {
+    // Checked per user, right before each removal, so a job that claims the
+    // device mid-cleanup keeps its own profile (its per-job cleanup owns it).
+    if (isDeviceBusy(deviceId)) {
+      warnings.push("device is busy: leftover profiles left to the job's own cleanup");
+      break;
+    }
     try {
       const r = await runner("adb", ["-s", deviceId, "shell", "pm", "remove-user", String(u.id)]);
       if (r.code === 0) removed.push(u.id);
@@ -89,7 +96,8 @@ export async function probeIsolationCapability(
 
 export async function cleanUpFarmProfilesAtStartup(
   devices: DeviceRepository,
-  runner: CommandRunner = profileRunner
+  runner: CommandRunner = profileRunner,
+  isDeviceBusy: (deviceId: string) => boolean = () => false
 ): Promise<void> {
   let list;
   try {
@@ -104,8 +112,8 @@ export async function cleanUpFarmProfilesAtStartup(
       // the result, but reading before removing keeps a removal failure from
       // hiding the capability.
       const capable = await probeIsolationCapability(device.id, runner);
-      const { removed, warnings } = await removeFarmProfiles(device.id, runner);
-      devices.setIsolationCapable(device.id, capable);
+      const { removed, warnings } = await removeFarmProfiles(device.id, runner, isDeviceBusy);
+      if (capable !== null) devices.setIsolationCapable(device.id, capable);
       if (removed.length || warnings.length) {
         log.info("work profile startup cleanup", { deviceId: device.id, removed: removed.length, warnings: warnings.length });
       }

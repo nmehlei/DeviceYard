@@ -139,7 +139,8 @@ export function deviceRoutes(deps: {
   router.get("/api/devices", async (_req, res) => {
     const release = deps.maintenance?.acquire('operation');
     if (deps.maintenance && !release) {
-      res.json({ devices: deps.deviceRepo.list().map(device => ({ ...device,
+      res.json({ devices: deps.deviceRepo.list().map(({ isolationCapable, ...device }) => ({ ...device,
+        ...(deps.isolationEnabled ? { isolationCapable } : {}),
         state: lastKnownState.get(device.id) ?? 'unknown', setupChecks: unknownSetupChecks(),
         ...(deps.policy ? { isAvailable: deps.policy.canUse(device.id), edition: deps.policy.snapshot().edition } : {}),
       })), stale: true, maintenance: deps.maintenance.snapshot(), runnerVersion: readVersion(), artifactBytes: deps.repo.totalArtifactBytes() });
@@ -178,8 +179,13 @@ export function deviceRoutes(deps: {
 
           let isolationCapable = device.isolationCapable;
           if (deps.isolationEnabled && state === "device") {
-            isolationCapable = await probeIsolationCapability(device.id, runner);
-            if (isolationCapable !== device.isolationCapable) deps.deviceRepo.setIsolationCapable(device.id, isolationCapable);
+            // null means "could not read" (e.g. the 5 s runner timed out):
+            // keep the last known value rather than erase it.
+            const probed = await probeIsolationCapability(device.id, runner);
+            if (probed !== null) {
+              isolationCapable = probed;
+              if (probed !== device.isolationCapable) deps.deviceRepo.setIsolationCapable(device.id, probed);
+            }
           }
 
           const previousState = lastKnownState.get(device.id);

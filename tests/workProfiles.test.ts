@@ -128,3 +128,31 @@ test("startup cleanup covers every registered device, records capability, and su
   logSpy.mockRestore();
   expect(removals(calls).map((c) => c.join(" "))).toEqual(["-s GOOD shell pm remove-user 17"]);
 });
+
+test("parseUsers only accepts lines that are a UserInfo entry", () => {
+  const out = USERS + "\n  note: see UserInfo{10:deviceyard-x:0} in log\n\tUserInfo{11:a UserInfo{10:deviceyard-y:0}:10}";
+  expect(parseUsers(out).map((u) => u.id)).toEqual([0, 150, 17]);
+});
+
+test("a busy device gets no remove-user call but still has its capability stored", async () => {
+  const { runner, calls } = fakeAdb({ users: OWNER_ONLY + "\tUserInfo{17:deviceyard-abc:1030}" });
+  const stored = new Map<string, boolean | null>();
+  const devices = {
+    list: () => [{ id: "D1" }],
+    setIsolationCapable: (id: string, v: boolean | null) => void stored.set(id, v),
+  } as never;
+  const logSpy = jest.spyOn(console, "log").mockImplementation(() => {});
+  await cleanUpFarmProfilesAtStartup(devices, runner, (id) => id === "D1");
+  logSpy.mockRestore();
+  expect(removals(calls)).toEqual([]);
+  expect(stored.get("D1")).toBe(true);
+});
+
+test("startup cleanup does not overwrite a stored capability with unknown", async () => {
+  const { runner } = fakeAdb({ usersFail: true });
+  const set = jest.fn();
+  const logSpy = jest.spyOn(console, "log").mockImplementation(() => {});
+  await cleanUpFarmProfilesAtStartup({ list: () => [{ id: "D1" }], setIsolationCapable: set } as never, runner);
+  logSpy.mockRestore();
+  expect(set).not.toHaveBeenCalled();
+});

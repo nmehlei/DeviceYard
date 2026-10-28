@@ -120,8 +120,8 @@ export function bootstrap(env: NodeJS.ProcessEnv = process.env, editionFactory?:
   // can isolate. Fire-and-forget: a slow or absent phone must never delay boot.
   // The test suite sets DEVICEYARD_SKIP_PROFILE_CLEANUP (tests/helpers/skipProfileCleanup.ts)
   // so the many bootstrap() calls do not leave adb probes running past test end.
-  if (!process.env.DEVICEYARD_SKIP_PROFILE_CLEANUP) {
-    cleanUpFarmProfilesAtStartup(deviceRepo).catch((err) =>
+  if (!env.DEVICEYARD_SKIP_PROFILE_CLEANUP) {
+    cleanUpFarmProfilesAtStartup(deviceRepo, undefined, (id) => repo.runningDeviceIds().includes(id)).catch((err) =>
       log.warn("work profile startup cleanup failed", { error: (err as Error).message })
     );
   }
