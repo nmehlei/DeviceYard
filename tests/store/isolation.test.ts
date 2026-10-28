@@ -68,3 +68,25 @@ test('the single-device claim never takes an isolated job', () => {
   expect(jobs.claimNextQueued('R1', true)?.id).toBe(plain.id);
   expect(jobs.getJob(isolated.id)?.status).toBe('queued');
 });
+
+test('appendStepWarnings merges into a finished step and leaves everything else as it was', () => {
+  const job = jobs.createJob('donable', ['a']);
+  const [a] = jobs.getSteps(job.id).filter(s => s.kind === 'flow');
+  const started = jobs.startStep(job.id, a.name);
+  jobs.finishStep(started.id, { status: 'passed', warnings: ['first'], profileMs: 1234, stdoutPreview: 'out', stderrPreview: 'err' });
+
+  jobs.appendStepWarnings(started.id, ['could not remove profile 10']);
+  jobs.appendStepWarnings(started.id, []);
+
+  const step = jobs.getSteps(job.id).find(s => s.id === started.id)!;
+  expect(step.warnings).toEqual(['first', 'could not remove profile 10']);
+  expect(step.status).toBe('passed');
+  expect(step.profileMs).toBe(1234);
+  expect(step.stdoutPreview).toBe('out');
+  expect(step.stderrPreview).toBe('err');
+
+  const bare = jobs.startStep(job.id, 'device');
+  jobs.finishStep(bare.id, { status: 'passed' });
+  jobs.appendStepWarnings(bare.id, ['late']);
+  expect(jobs.getSteps(job.id).find(s => s.id === bare.id)?.warnings).toEqual(['late']);
+});

@@ -14,6 +14,11 @@ import { captureDeviceScreenshot, type ScreenshotCapturer } from "./screenshot";
 import { startRecording, type ProcessSpawner } from "./artifacts/recorder";
 import type { JobRepository } from "./store/jobRepository";
 import type { StepRow } from "./store/rows";
+import type { IsolationMode } from "../shared/isolation";
+import { IsolationError, type IsolationHooks, type IsolationScope } from "./editions/isolation";
+
+/** Ruling 4: a per-flow job's install step only records where the install went. */
+const PER_FLOW_INSTALL_STDOUT = "per-flow isolation: the APK is installed into each flow's work profile";
 
 export interface RunJobOptions {
   jobId: string;
@@ -36,6 +41,9 @@ export interface RunJobOptions {
   /** The device's reset policy, resolved at dispatch. Omitted means the
    * weakest setting - never assume a caller meant to clear a browser. */
   resetPolicy?: ResetPolicy;
+  /** Work-profile isolation. Absent or `disabled` runs exactly as before;
+   * the other modes need the edition's hooks (Pro). */
+  isolation?: { mode: IsolationMode; hooks?: IsolationHooks };
 }
 
 /**
@@ -166,11 +174,72 @@ async function runJobInner(
     }
   };
 
+  // --- Work-profile isolation ------------------------------------------------
+  // The edition (Pro) owns the profile itself; this module only decides when
+  // to create and remove one. A per-job profile is removed by releaseJobScope,
+  // which every exit path calls before cleanup() and the terminal finishJob -
+  // a finally around everything after creation, spread over the three
+  // terminal paths because each of them ends in finishJob. A per-flow profile
+  // is removed in the flow loop's own finally.
+  const isolationMode: IsolationMode = opts.isolation?.mode ?? "disabled";
+  const hooks = opts.isolation?.hooks;
+  let jobScope: IsolationScope | undefined;
+  /** Where per-job removal warnings go: the last finished flow, else the device step. */
+  let removalTargetId: number | undefined;
+
+  /** Pro removes leftover farm profiles here. A failure is a warning, never a failed job. */
+  const beforeJob = async (fn: (deviceId: string) => Promise<string[]>): Promise<string[]> => {
+    try {
+      return await fn(opts.deviceId);
+    } catch (err) {
+      return [`could not check for leftover work profiles: ${String(err)}`];
+    }
+  };
+
+  /** An IsolationError is an expected failure carrying the adb output; anything else is a crash. */
+  const createScope = async (ordinal?: number): Promise<{ scope: IsolationScope } | { failure: string }> => {
+    const input = ordinal === undefined ? { deviceId: opts.deviceId, jobId } : { deviceId: opts.deviceId, jobId, ordinal };
+    try {
+      const scope = await withSpan("isolation.create", { "device.id": opts.deviceId, "isolation.mode": isolationMode }, () =>
+        hooks!.createScope(input)
+      );
+      return { scope };
+    } catch (err) {
+      if (!(err instanceof IsolationError)) throw err;
+      return { failure: err.output || err.message };
+    }
+  };
+
+  /** The hook never throws by contract; guarded anyway, since a throw here would skip cleanup. */
+  const removeScope = async (scope: IsolationScope): Promise<string[]> => {
+    try {
+      return await withSpan("isolation.remove", { "device.id": opts.deviceId }, () =>
+        hooks!.removeScope(opts.deviceId, scope)
+      );
+    } catch (err) {
+      return [`could not remove work profile ${scope.name}: ${String(err)}`];
+    }
+  };
+
+  const releaseJobScope = async (): Promise<void> => {
+    if (!jobScope) return;
+    const scope = jobScope;
+    jobScope = undefined;
+    const warnings = await removeScope(scope);
+    if (removalTargetId === undefined) return;
+    try {
+      repo.appendStepWarnings(removalTargetId, warnings);
+    } catch (err) {
+      log.error("could not record work profile removal warnings", { jobId, err: String(err) });
+    }
+  };
+
   /** A setup or flow step failed. The remaining work cannot succeed, so mark
    * it skipped and close the job as done - matching the long-standing
    * behaviour where a device or install failure is a completed job carrying a
    * failure result, not a crashed one. */
   const abort = async (): Promise<void> => {
+    await releaseJobScope();
     repo.skipRemainingSteps(jobId);
     await cleanup();
     repo.finishJob(jobId, "done");
@@ -201,34 +270,190 @@ async function runJobInner(
     return collected.warnings;
   };
 
+  /** Runs one flow under Maestro (inside `scope` when isolated) and collects
+   * its artifacts. The caller closes the step, so a per-flow profile can be
+   * removed first and its warnings land on the same step. */
+  const executeFlow = async (
+    started: StepRow,
+    flowFile: string,
+    scope?: IsolationScope
+  ): Promise<{ result: { passed: boolean; stdout: string; stderr: string }; warnings: string[] }> => {
+    // A dedicated debug directory per flow, keyed by ordinal, so Maestro's
+    // screenshots/hierarchy/log for one flow never collide with another's -
+    // without this (the brief's original omission), collectArtifacts is
+    // never given anywhere to look and Maestro's screenshots - a headline
+    // goal of this project - are silently never collected.
+    const debugDir = path.join(opts.dataDir, "debug", jobId, String(started.ordinal));
+    await fs.promises.mkdir(debugDir, { recursive: true });
+
+    // Records the whole flow, not just its failure moments the way
+    // screenshots do - see the design doc's "Video capture" section. The
+    // pulled .mp4 lands directly in debugDir, so it needs no changes to
+    // collectArtifacts()/classify() below: .mp4 is already classified as
+    // "recording" and flows through the same debugDir walk as every other
+    // Maestro artifact.
+    const recording = startRecording({
+      deviceId: opts.deviceId,
+      debugDir,
+      ordinal: started.ordinal,
+      runner: opts.runner,
+      spawner: opts.spawner,
+    });
+
+    // The exit code only. argv carries -e KEY=VALUE pairs, which is
+    // precisely where the secrets are - it must never reach a span.
+    const result = await withSpan("maestro.exec", {}, async (execSpan) => {
+      const r = await runMaestroFlow(opts.deviceId, flowFile, opts.runner, debugDir, opts.env, scope && hooks?.maestro(scope));
+      execSpan.setAttribute("process.exit_code", r.passed ? 0 : 1);
+      return r;
+    });
+    if (!result.passed) anyFlowFailed = true;
+    recordFlowRun(result.passed ? "passed" : "failed");
+    const { warning: recordingWarning } = await recording.stop();
+
+    const collected = await collectArtifacts({
+      dataDir: opts.dataDir,
+      relDir: path.join(jobId, String(started.ordinal)),
+      debugDir,
+      stdout: result.stdout,
+      stderr: result.stderr,
+      env: opts.env,
+    });
+    if (recordingWarning) collected.warnings.push(recordingWarning);
+
+    // Whatever screenshots collectArtifacts just found are whatever the
+    // flow itself asked for: an explicit takeScreenshot: step (often
+    // placed early, e.g. right after login, to confirm landing state) or
+    // Maestro's own automatic debug capture (tied to failures, not
+    // routine end-of-flow state). Neither guarantees a shot of what the
+    // app actually looks like once the flow is DONE, which is what a
+    // status/failure review most wants - so capture one explicitly.
+    // Recorded after collected.artifacts (below), never before: StepTimeline's
+    // findLast(kind === "screenshot") picks the last-inserted match, so this
+    // is what always wins as the displayed screenshot, regardless of
+    // whatever else the flow captured along the way. Best-effort, like every
+    // other artifact here - losing this shot must never fail an otherwise
+    // passing flow.
+    try {
+      const png = await captureScreenshot(opts.deviceId);
+      const relPath = path.join(jobId, String(started.ordinal), "final.png");
+      await fs.promises.writeFile(path.join(opts.dataDir, "artifacts", relPath), png);
+      collected.artifacts.push({ kind: "screenshot", relPath, bytes: png.length });
+    } catch (err) {
+      collected.warnings.push(`could not capture end-of-flow screenshot: ${String(err)}`);
+    }
+
+    repo.recordArtifacts(started.id, collected.artifacts);
+
+    // collectArtifacts COPIES files out of debugDir into dataDir/artifacts -
+    // it never moves them, so without this the debug tree lingers forever
+    // and every screenshot/recording exists twice on disk. That silently
+    // halves the accuracy of totalArtifactBytes(), the only early warning
+    // that the farm host is filling up. Best-effort: a failure to remove
+    // scratch space must never fail an otherwise-passing flow.
+    try {
+      await fs.promises.rm(debugDir, { recursive: true, force: true });
+    } catch (err) {
+      collected.warnings.push(`could not remove debug directory ${debugDir}: ${String(err)}`);
+    }
+
+    return { result, warnings: collected.warnings };
+  };
+
+  const finishFlow = (
+    started: StepRow,
+    ran: Awaited<ReturnType<typeof executeFlow>>,
+    warnings: string[],
+    profileMs?: number
+  ): void => {
+    repo.finishStep(started.id, {
+      status: ran.result.passed ? "passed" : "failed",
+      warnings,
+      artifactDir: path.join(jobId, String(started.ordinal)),
+      stdoutPreview: maskSecrets(ran.result.stdout, opts.env),
+      stderrPreview: maskSecrets(ran.result.stderr, opts.env),
+      profileMs,
+    });
+    changed();
+  };
+
+  /** A per-flow profile that could not be created or installed into: the flow fails with that output. */
+  const failFlow = async (
+    started: StepRow,
+    output: { stdout: string; stderr: string },
+    warnings: string[],
+    profileMs?: number
+  ): Promise<void> => {
+    const outputWarnings = await recordFullOutput(started, output.stdout, output.stderr);
+    repo.finishStep(started.id, {
+      status: "failed",
+      warnings: [...warnings, ...outputWarnings],
+      stdoutPreview: output.stdout,
+      stderrPreview: output.stderr,
+      profileMs,
+    });
+    changed();
+  };
+
   try {
     repo.markJobRunning(jobId);
     changed();
 
     const device = repo.startStep(jobId, "device");
+    removalTargetId = device.id;
     changed();
-    const prep = await withSpan("device.prepare", { "device.id": opts.deviceId }, () =>
-      prepareDevice(opts.deviceId, opts.appId, opts.runner, opts.resetPolicy)
-    );
-    const deviceStderr = prep.ready ? "" : prep.reason ?? "device not ready";
-    const deviceOutputWarnings = await recordFullOutput(device, "", deviceStderr);
-    if (!prep.ready) {
+    // Undefined while the device step is going well; otherwise its stderr.
+    let deviceFailure: string | undefined;
+    const deviceWarnings: string[] = [];
+    if (isolationMode !== "disabled" && !hooks?.enabled()) {
+      deviceFailure = `isolation "${isolationMode}" requires DeviceYard Pro`;
+    } else {
+      const prep = await withSpan("device.prepare", { "device.id": opts.deviceId }, () =>
+        prepareDevice(opts.deviceId, opts.appId, opts.runner, opts.resetPolicy, isolationMode !== "disabled")
+      );
+      deviceWarnings.push(...prep.warnings);
+      if (!prep.ready) {
+        deviceFailure = prep.reason ?? "device not ready";
+      } else {
+        if (hooks?.beforeJob) deviceWarnings.push(...(await beforeJob(hooks.beforeJob)));
+        if (isolationMode === "per-job") {
+          const created = await createScope();
+          if ("failure" in created) {
+            deviceFailure = created.failure;
+          } else {
+            jobScope = created.scope;
+            deviceWarnings.push(...created.scope.warnings);
+          }
+        }
+      }
+    }
+    const deviceOutputWarnings = await recordFullOutput(device, "", deviceFailure ?? "");
+    if (deviceFailure !== undefined) {
       repo.finishStep(device.id, {
         status: "failed",
-        warnings: [...prep.warnings, ...deviceOutputWarnings],
-        stderrPreview: deviceStderr,
+        warnings: [...deviceWarnings, ...deviceOutputWarnings],
+        stderrPreview: deviceFailure,
       });
       await abort();
       return;
     }
-    repo.finishStep(device.id, { status: "passed", warnings: [...prep.warnings, ...deviceOutputWarnings] });
+    repo.finishStep(device.id, {
+      status: "passed",
+      warnings: [...deviceWarnings, ...deviceOutputWarnings],
+      profileMs: jobScope?.durationMs,
+    });
     changed();
 
     const install = repo.startStep(jobId, "install");
     changed();
-    const installed = await withSpan("apk.install", { "app.id": opts.appId }, () =>
-      installApk(opts.deviceId, opts.apkPath, opts.appId, opts.runner)
-    );
+    // Per-flow jobs install into each flow's own profile (see the flow loop),
+    // so this step only says where the install went.
+    const installed =
+      isolationMode === "per-flow"
+        ? { passed: true, stdout: PER_FLOW_INSTALL_STDOUT, stderr: "" }
+        : await withSpan("apk.install", { "app.id": opts.appId }, () =>
+            installApk(opts.deviceId, opts.apkPath, opts.appId, opts.runner, jobScope?.userId)
+          );
     const installOutputWarnings = await recordFullOutput(install, installed.stdout, installed.stderr);
     repo.finishStep(install.id, {
       status: installed.passed ? "passed" : "failed",
@@ -264,101 +489,57 @@ async function runJobInner(
       .getSteps(jobId)
       .filter((s) => s.kind === "flow")
       .entries()) {
-      await withSpan("flow.run", { "flow.name": step.name, "flow.index": flowIndex }, async () => {
+      const stop = await withSpan("flow.run", { "flow.name": step.name, "flow.index": flowIndex }, async () => {
       const flowFile = path.join(opts.extractDir, "e2e", "scenarios", `${step.name}.yaml`);
       const started = repo.startStep(jobId, step.name, flowFile);
       changed();
 
-      // A dedicated debug directory per flow, keyed by ordinal, so Maestro's
-      // screenshots/hierarchy/log for one flow never collide with another's -
-      // without this (the brief's original omission), collectArtifacts is
-      // never given anywhere to look and Maestro's screenshots - a headline
-      // goal of this project - are silently never collected.
-      const debugDir = path.join(opts.dataDir, "debug", jobId, String(step.ordinal));
-      await fs.promises.mkdir(debugDir, { recursive: true });
-
-      // Records the whole flow, not just its failure moments the way
-      // screenshots do - see the design doc's "Video capture" section. The
-      // pulled .mp4 lands directly in debugDir, so it needs no changes to
-      // collectArtifacts()/classify() below: .mp4 is already classified as
-      // "recording" and flows through the same debugDir walk as every other
-      // Maestro artifact.
-      const recording = startRecording({
-        deviceId: opts.deviceId,
-        debugDir,
-        ordinal: step.ordinal,
-        runner: opts.runner,
-        spawner: opts.spawner,
-      });
-
-      // The exit code only. argv carries -e KEY=VALUE pairs, which is
-      // precisely where the secrets are - it must never reach a span.
-      const result = await withSpan("maestro.exec", {}, async (execSpan) => {
-        const r = await runMaestroFlow(opts.deviceId, flowFile, opts.runner, debugDir, opts.env);
-        execSpan.setAttribute("process.exit_code", r.passed ? 0 : 1);
-        return r;
-      });
-      if (!result.passed) anyFlowFailed = true;
-      recordFlowRun(result.passed ? "passed" : "failed");
-      const { warning: recordingWarning } = await recording.stop();
-
-      const collected = await collectArtifacts({
-        dataDir: opts.dataDir,
-        relDir: path.join(jobId, String(step.ordinal)),
-        debugDir,
-        stdout: result.stdout,
-        stderr: result.stderr,
-        env: opts.env,
-      });
-      if (recordingWarning) collected.warnings.push(recordingWarning);
-
-      // Whatever screenshots collectArtifacts just found are whatever the
-      // flow itself asked for: an explicit takeScreenshot: step (often
-      // placed early, e.g. right after login, to confirm landing state) or
-      // Maestro's own automatic debug capture (tied to failures, not
-      // routine end-of-flow state). Neither guarantees a shot of what the
-      // app actually looks like once the flow is DONE, which is what a
-      // status/failure review most wants - so capture one explicitly.
-      // Recorded after collected.artifacts (below), never before: StepTimeline's
-      // findLast(kind === "screenshot") picks the last-inserted match, so this
-      // is what always wins as the displayed screenshot, regardless of
-      // whatever else the flow captured along the way. Best-effort, like every
-      // other artifact here - losing this shot must never fail an otherwise
-      // passing flow.
-      try {
-        const png = await captureScreenshot(opts.deviceId);
-        const relPath = path.join(jobId, String(step.ordinal), "final.png");
-        await fs.promises.writeFile(path.join(opts.dataDir, "artifacts", relPath), png);
-        collected.artifacts.push({ kind: "screenshot", relPath, bytes: png.length });
-      } catch (err) {
-        collected.warnings.push(`could not capture end-of-flow screenshot: ${String(err)}`);
+      if (isolationMode !== "per-flow") {
+        const ran = await executeFlow(started, flowFile, jobScope);
+        finishFlow(started, ran, ran.warnings);
+        removalTargetId = started.id;
+        return false;
       }
 
-      repo.recordArtifacts(started.id, collected.artifacts);
-
-      // collectArtifacts COPIES files out of debugDir into dataDir/artifacts -
-      // it never moves them, so without this the debug tree lingers forever
-      // and every screenshot/recording exists twice on disk. That silently
-      // halves the accuracy of totalArtifactBytes(), the only early warning
-      // that the farm host is filling up. Best-effort: a failure to remove
-      // scratch space must never fail an otherwise-passing flow.
-      try {
-        await fs.promises.rm(debugDir, { recursive: true, force: true });
-      } catch (err) {
-        collected.warnings.push(`could not remove debug directory ${debugDir}: ${String(err)}`);
+      // Per-flow: a fresh profile with the APK in it, removed before the step
+      // closes so its warnings land on this step. A profile that can't be
+      // created or installed into fails the flow and the job: the device
+      // can't isolate, and there is no fallback to the primary user.
+      const created = await createScope(started.ordinal);
+      if ("failure" in created) {
+        await failFlow(started, { stdout: "", stderr: created.failure }, []);
+        return true;
       }
-
-      repo.finishStep(started.id, {
-        status: result.passed ? "passed" : "failed",
-        warnings: collected.warnings,
-        artifactDir: path.join(jobId, String(step.ordinal)),
-        stdoutPreview: maskSecrets(result.stdout, opts.env),
-        stderrPreview: maskSecrets(result.stderr, opts.env),
+      const scope = created.scope;
+      let installed: { passed: boolean; stdout: string; stderr: string } | undefined;
+      let ran: Awaited<ReturnType<typeof executeFlow>> | undefined;
+      const removal: string[] = [];
+      let settled = false;
+      try {
+        installed = await withSpan("apk.install", { "app.id": opts.appId }, () =>
+          installApk(opts.deviceId, opts.apkPath, opts.appId, opts.runner, scope.userId)
+        );
+        if (installed.passed) ran = await executeFlow(started, flowFile, scope);
+        settled = true;
+      } finally {
+        removal.push(...(await removeScope(scope)));
+        // A throw leaves the step running and never closes it; keep the warnings on it anyway.
+        if (!settled) repo.appendStepWarnings(started.id, removal);
+      }
+      if (!ran) {
+        await failFlow(started, installed, [...scope.warnings, ...removal], scope.durationMs);
+        return true;
+      }
+      finishFlow(started, ran, [...scope.warnings, ...ran.warnings, ...removal], scope.durationMs);
+      return false;
       });
-      changed();
-      });
+      if (stop) {
+        await abort();
+        return;
+      }
     }
 
+    await releaseJobScope();
     await cleanup();
     repo.finishJob(jobId, "done");
     // The job row is "done" either way; the outcome is about the verdicts.
@@ -375,6 +556,7 @@ async function runJobInner(
     const message = maskSecrets(err instanceof Error ? err.message : String(err), opts.env);
     log.error("job failed", { jobId, err: message });
     outcome.value = "error";
+    await releaseJobScope();
     await cleanup();
     try {
       repo.skipRemainingSteps(jobId);

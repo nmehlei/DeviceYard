@@ -330,6 +330,9 @@ export function createServer(deps: ServerDeps): ServerHandle {
               // job queued since the change. A device removed between claim
               // and dispatch falls back to the weakest policy.
               resetPolicy: deps.deviceRepo.get(deviceId)?.resetPolicy,
+              // Without the edition's hooks an isolated job fails its device
+              // step with a clear message rather than running unisolated.
+              isolation: { mode: deps.repo.getJob(jobId)?.isolation ?? 'disabled', hooks: edition?.isolation },
               onChange: (id) => events.publish(id),
             })
           );

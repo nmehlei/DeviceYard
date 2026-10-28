@@ -329,6 +329,22 @@ export class JobRepository {
     return toStep(record);
   }
 
+  /**
+   * Adds warnings to a step that may already be finished - e.g. a work
+   * profile removed after its last flow. Its own UPDATE on purpose:
+   * finishStep rewrites every column, nulling profile_ms and the previews.
+   */
+  appendStepWarnings(stepId: number, warnings: string[]): void {
+    if (warnings.length === 0) return;
+    const record = this.db.get<{ warnings: string | null }>("SELECT warnings FROM flow_runs WHERE id = ?", stepId);
+    if (!record) throw new Error(`step ${stepId} not found`);
+    this.db.run(
+      "UPDATE flow_runs SET warnings = ? WHERE id = ?",
+      JSON.stringify([...parseWarnings(record.warnings), ...warnings]),
+      stepId
+    );
+  }
+
   skipRemainingSteps(jobId: string): void {
     // A throw mid-step (e.g. runJob's catch block) leaves the step that was
     // startStep'd but never finishStep'd sitting at status='running' under a
