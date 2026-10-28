@@ -874,6 +874,7 @@ export function createServer(deps: ServerDeps): ServerHandle {
       deviceRepo: deps.deviceRepo,
       userRepo: deps.userRepo,
       runner: deps.runner,
+      isolationEnabled: !!edition?.isolation,
       controlLeases,
       hasLiveViewers: (deviceId) => controlHub.viewerCount(deviceId) > 0,
     })

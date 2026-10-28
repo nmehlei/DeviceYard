@@ -19,6 +19,7 @@ import { migrate } from "./db/migrations";
 import { createServer } from "./server";
 import { startRetentionSweep } from "./retention";
 import { JobRepository } from "./store/jobRepository";
+import { cleanUpFarmProfilesAtStartup } from "./workProfiles";
 import { DeviceRepository } from "./store/deviceRepository";
 import { UserRepository } from "./store/userRepository";
 import { OrgRepository } from "./store/orgRepository";
@@ -114,6 +115,12 @@ export function bootstrap(env: NodeJS.ProcessEnv = process.env, editionFactory?:
     const status = repo.getJob(id)?.status;
     return status === 'queued' || status === 'running';
   });
+
+  // Remove work profiles a crashed run left behind and record which devices
+  // can isolate. Fire-and-forget: a slow or absent phone must never delay boot.
+  cleanUpFarmProfilesAtStartup(deviceRepo).catch((err) =>
+    log.warn("work profile startup cleanup failed", { error: (err as Error).message })
+  );
 
   // Best-effort purge of the whole debug/ scratch tree. This is safe only
   // because nothing is running yet at boot - runJob's own per-job cleanup

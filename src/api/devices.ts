@@ -10,6 +10,7 @@ import type { ControlLeases } from "../control/leases";
 import { isResetPolicy, RESET_POLICIES } from "../store/rows";
 import type { UserRepository } from "../store/userRepository";
 import type { DevicePolicy } from "../editions/policy";
+import { probeIsolationCapability } from "../workProfiles";
 import { buildProbeArgs, checkResult, findSetupCheck, parseProbeOutput, unknownSetupChecks } from "../deviceSetupChecks";
 
 export type { ScreenshotCapturer };
@@ -87,6 +88,9 @@ export function deviceRoutes(deps: {
    * existing callers and tests are unaffected; absent means "nobody". */
   hasLiveViewers?: (deviceId: string) => boolean;
   maintenance?: MaintenanceCoordinator;
+  /** True when the edition provides work-profile isolation: the device list
+   * then probes, persists and reports isolationCapable. */
+  isolationEnabled?: boolean;
 }): Router {
   const router = Router();
   // Bind checks to the handlers so Express path aliases cannot bypass policy.
@@ -172,6 +176,12 @@ export function deviceRoutes(deps: {
             }
           }
 
+          let isolationCapable = device.isolationCapable;
+          if (deps.isolationEnabled && state === "device") {
+            isolationCapable = await probeIsolationCapability(device.id, runner);
+            if (isolationCapable !== device.isolationCapable) deps.deviceRepo.setIsolationCapable(device.id, isolationCapable);
+          }
+
           const previousState = lastKnownState.get(device.id);
           if (previousState !== undefined && previousState !== state) {
             deps.deviceRepo.recordEvent(device.id, "state_change", `${previousState} -> ${state}`);
@@ -188,6 +198,7 @@ export function deviceRoutes(deps: {
             state,
             resetPolicy: device.resetPolicy,
             setupChecks,
+            ...(deps.isolationEnabled ? { isolationCapable } : {}),
           };
         })
       );
