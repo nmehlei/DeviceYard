@@ -152,3 +152,28 @@ test("an install gives up well before the job's own timeout, so a hung install f
   expect(INSTALL_TIMEOUT_MS).toBe(5 * 60 * 1000);
   expect(INSTALL_TIMEOUT_MS).toBeLessThan(DEFAULT_TIMEOUT_MS);
 });
+
+test("install with a user id targets that user, including the uninstall-and-retry fallback", async () => {
+  const calls: Array<{ file: string; args: string[] }> = [];
+  let installAttempt = 0;
+  const fakeRunner: CommandRunner = async (file, args) => {
+    calls.push({ file, args });
+    if (args[2] === "install") {
+      installAttempt += 1;
+      if (installAttempt === 1) {
+        return { code: 1, stdout: "", stderr: "INSTALL_FAILED_UPDATE_INCOMPATIBLE" };
+      }
+      return { code: 0, stdout: "Success", stderr: "" };
+    }
+    return { code: 0, stdout: "", stderr: "" };
+  };
+
+  const result = await installApk("d", "/tmp/app.apk", "app.id", fakeRunner, 17);
+
+  expect(result.passed).toBe(true);
+  expect(calls).toEqual([
+    { file: "adb", args: ["-s", "d", "install", "--user", "17", "-r", "-d", "/tmp/app.apk"] },
+    { file: "adb", args: ["-s", "d", "uninstall", "--user", "17", "app.id"] },
+    { file: "adb", args: ["-s", "d", "install", "--user", "17", "-r", "-d", "/tmp/app.apk"] },
+  ]);
+});

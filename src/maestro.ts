@@ -90,7 +90,9 @@ export async function runMaestroFlow(
   flowPath: string,
   runner: CommandRunner = defaultRunner,
   debugDir?: string,
-  env?: Record<string, string>
+  env?: Record<string, string>,
+  // Alternate Maestro build and extra `test` args (e.g. --android-user). Default: stock maestro.
+  maestro: { file: string; testArgs: string[] } = { file: "maestro", testArgs: [] }
 ): Promise<FlowResult> {
   // Maestro 2.6.1: --debug-output writes screenshots/hierarchy/maestro.log
   // for the run into the given directory; --flatten-debug-output keeps them
@@ -107,8 +109,8 @@ export async function runMaestroFlow(
     : [];
 
   const args = debugDir
-    ? ["--device", deviceId, "test", "--debug-output", debugDir, "--flatten-debug-output", ...envArgs, flowPath]
-    : ["--device", deviceId, "test", ...envArgs, flowPath];
-  const { code, stdout, stderr } = await runner("maestro", args);
+    ? ["--device", deviceId, "test", ...maestro.testArgs, "--debug-output", debugDir, "--flatten-debug-output", ...envArgs, flowPath]
+    : ["--device", deviceId, "test", ...maestro.testArgs, ...envArgs, flowPath];
+  const { code, stdout, stderr } = await runner(maestro.file, args);
   return { flow: flowPath, passed: code === 0, stdout, stderr };
 }

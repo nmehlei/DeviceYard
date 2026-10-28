@@ -24,7 +24,9 @@ export async function installApk(
   deviceId: string,
   apkPath: string,
   appId: string,
-  runner: CommandRunner = installRunner
+  runner: CommandRunner = installRunner,
+  // Target Android user (a work profile). Omitted: adb's default, byte-for-byte as before.
+  userId?: number
 ): Promise<InstallResult> {
   // -d allows a LOWER versionCode to replace what is installed. The farm is a
   // test device, so the APK the caller just uploaded is by definition the one
@@ -33,7 +35,8 @@ export async function installApk(
   // replace a CI-built one: DonableApp derives versionCode from the pipeline's
   // Build.BuildId, so any CI build outranks every local build forever, and
   // adb refuses with INSTALL_FAILED_VERSION_DOWNGRADE.
-  const adbInstall = () => runner("adb", ["-s", deviceId, "install", "-r", "-d", apkPath]);
+  const userArgs = userId === undefined ? [] : ["--user", String(userId)];
+  const adbInstall = () => runner("adb", ["-s", deviceId, "install", ...userArgs, "-r", "-d", apkPath]);
 
   let { code, stdout, stderr } = await adbInstall();
 
@@ -56,7 +59,7 @@ export async function installApk(
     stderr.includes("INSTALL_FAILED_VERSION_DOWNGRADE");
 
   if (code !== 0 && needsReinstall) {
-    await runner("adb", ["-s", deviceId, "uninstall", appId]);
+    await runner("adb", ["-s", deviceId, "uninstall", ...userArgs, appId]);
     ({ code, stdout, stderr } = await adbInstall());
   }
 
