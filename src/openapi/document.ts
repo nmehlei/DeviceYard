@@ -91,13 +91,14 @@ const schemas: Record<string, Schema> = {
     id: { type: "integer" }, jobId: { type: "string" }, ordinal: { type: "integer" },
     kind: { type: "string", enum: ["setup", "flow"] }, name: { type: "string" },
     status: { type: "string", enum: ["queued", "running", "passed", "failed", "skipped"] },
-    exitCode: { type: ["integer", "null"] }, startedAt: { type: ["integer", "null"] },
+    exitCode: { type: ["integer", "null"] }, profileMs: { type: ["integer", "null"], description: "Milliseconds spent creating the work profile for this step, when isolated" }, startedAt: { type: ["integer", "null"] },
     finishedAt: { type: ["integer", "null"] }, resolvedPath: { type: ["string", "null"] },
     artifactDir: { type: ["string", "null"] }, warnings: array({ type: "string" }),
     stdoutPreview: { type: ["string", "null"] }, stderrPreview: { type: ["string", "null"] },
     artifacts: array(ref("Artifact")),
   }, ["id", "jobId", "ordinal", "kind", "name", "status"]),
   Job: object({
+    isolation: { type: 'string', enum: ['disabled', 'per-job', 'per-flow'] },
     requiredDeviceTags: { type: 'array', maxItems: 16, uniqueItems: true, items: { type: 'string', pattern: '^[a-z0-9][a-z0-9-]{0,31}$' } },
     waitingReason: { type: ['string', 'null'], description: 'Current queue eligibility reason, included in job details' },
     id: { type: "string" }, org: { type: "string" },
@@ -156,13 +157,14 @@ add("/openapi.json", OpenAPIV3_1.HttpMethods.GET, op("getOpenApiDocument", "Open
 }, publicOperation));
 
 add("/run", OpenAPIV3_1.HttpMethods.POST, op("submitRun", "CI", "Queue a test run", {
-  202: json(object({ id: { type: "string" }, status: { type: "string", const: "queued" } }, ["id", "status"]), "Run queued"),
+  202: json(object({ id: { type: "string" }, status: { type: "string", const: "queued" }, warnings: array({ type: "string" }) }, ["id", "status"]), "Run queued"),
   ...errorResponses(400, 401, 403, 413, 500, 503),
 }, { requestBody: { required: true, content: { "multipart/form-data": { schema: object({
   apk: { type: "string", format: "binary" }, flowsArchive: { type: "string", format: "binary" },
   flows: { type: "string", description: "JSON array of flow identifiers" },
   env: { type: "string", description: "Optional JSON object of string environment values" },
   requiredDeviceTags: { type: 'string', description: 'Optional JSON array of up to 16 unique lowercase device tags, 1–32 letters/digits/hyphens with an alphanumeric first character. Nonempty requirements need active Pro routing. All tags must match; never silently ignored.' },
+  isolation: { type: 'string', enum: ['disabled', 'per-job', 'per-flow'], description: 'Optional work-profile isolation mode (default disabled; non-disabled needs active Pro isolation). `per-job` costs about 15–40 s and about 1.5 GB of device writes per job; `per-flow` costs that for every flow (a 27-flow suite writes about 40 GB). per-flow submissions also return a warning.' },
 }, ["apk", "flowsArchive", "flows"]) } } } }));
 add("/run/{id}", OpenAPIV3_1.HttpMethods.GET, op("getRun", "CI", "Get a test run", { 200: json(ref("LegacyJob")), ...errorResponses(401, 403, 404) }, { parameters: [pathParameter("id")] }));
 add("/jobs", OpenAPIV3_1.HttpMethods.GET, op("listRuns", "CI", "List the latest test runs", { 200: json(array(ref("LegacyJob"))), ...errorResponses(401, 403) }));
