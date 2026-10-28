@@ -91,7 +91,7 @@ const schemas: Record<string, Schema> = {
     id: { type: "integer" }, jobId: { type: "string" }, ordinal: { type: "integer" },
     kind: { type: "string", enum: ["setup", "flow"] }, name: { type: "string" },
     status: { type: "string", enum: ["queued", "running", "passed", "failed", "skipped"] },
-    exitCode: { type: ["integer", "null"] }, profileMs: { type: ["integer", "null"], description: "Milliseconds spent creating the work profile for this step, when isolated" }, startedAt: { type: ["integer", "null"] },
+    exitCode: { type: ["integer", "null"] }, profileMs: { type: ["integer", "null"], description: "Milliseconds to create and start the work profile for this step. Null when not isolated" }, startedAt: { type: ["integer", "null"] },
     finishedAt: { type: ["integer", "null"] }, resolvedPath: { type: ["string", "null"] },
     artifactDir: { type: ["string", "null"] }, warnings: array({ type: "string" }),
     stdoutPreview: { type: ["string", "null"] }, stderrPreview: { type: ["string", "null"] },

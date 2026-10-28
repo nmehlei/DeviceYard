@@ -51,7 +51,7 @@ export interface StepRow {
   warnings: string[];
   stdoutPreview: string | null;
   stderrPreview: string | null;
-  /** Time spent creating and removing the work profile around this flow. Null when not isolated. */
+  /** Milliseconds to create and start the work profile for this step. Null when not isolated. */
   profileMs: number | null;
 }
 

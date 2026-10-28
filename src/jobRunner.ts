@@ -206,14 +206,14 @@ async function runJobInner(
       return { scope };
     } catch (err) {
       if (!(err instanceof IsolationError)) throw err;
-      return { failure: err.output || err.message };
+      return { failure: err.output ? `${err.message}\n\n${err.output}` : err.message };
     }
   };
 
   /** The hook never throws by contract; guarded anyway, since a throw here would skip cleanup. */
   const removeScope = async (scope: IsolationScope): Promise<string[]> => {
     try {
-      return await withSpan("isolation.remove", { "device.id": opts.deviceId }, () =>
+      return await withSpan("isolation.remove", { "device.id": opts.deviceId, "isolation.mode": isolationMode }, () =>
         hooks!.removeScope(opts.deviceId, scope)
       );
     } catch (err) {
@@ -406,7 +406,7 @@ async function runJobInner(
     let deviceFailure: string | undefined;
     const deviceWarnings: string[] = [];
     if (isolationMode !== "disabled" && !hooks?.enabled()) {
-      deviceFailure = `isolation "${isolationMode}" requires DeviceYard Pro`;
+      deviceFailure = `isolation "${isolationMode}" requires an active DeviceYard Pro license`;
     } else {
       const prep = await withSpan("device.prepare", { "device.id": opts.deviceId }, () =>
         prepareDevice(opts.deviceId, opts.appId, opts.runner, opts.resetPolicy, isolationMode !== "disabled")

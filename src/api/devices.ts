@@ -110,6 +110,12 @@ export function deviceRoutes(deps: {
     finally { release?.(); releaseOperation?.(); }
   };
   const runner = deps.runner ?? deviceOpsRunner;
+  /** isolationCapable is only meaningful (and only reported) when the edition provides isolation. */
+  const exposeDevice = <T extends { isolationCapable?: unknown }>(device: T | undefined) => {
+    if (!device || deps.isolationEnabled) return device;
+    const { isolationCapable: _hidden, ...rest } = device;
+    return rest;
+  };
   const captureScreenshot = deps.captureScreenshot ?? captureDeviceScreenshot;
   let maestroVersion: string | undefined;
   let versionCheckedAt = 0;
@@ -230,7 +236,7 @@ export function deviceRoutes(deps: {
 
     const device = deps.deviceRepo.add(trimmedId, typeof label === "string" && label.trim() ? label.trim() : trimmedId);
     deps.deviceRepo.recordEvent(device.id, "added", `registered by ${actorOf(req, deps.userRepo)}`);
-    res.status(201).json({ device, setupInstructions: SETUP_INSTRUCTIONS });
+    res.status(201).json({ device: exposeDevice(device), setupInstructions: SETUP_INSTRUCTIONS });
   });
 
   const setEnrolment = (enrolled: boolean) => (req: Request, res: Response) => {
@@ -244,7 +250,7 @@ export function deviceRoutes(deps: {
       return;
     }
     if (device.isActive === enrolled) {
-      res.status(200).json({ device });
+      res.status(200).json({ device: exposeDevice(device) });
       return;
     }
 
@@ -267,7 +273,7 @@ export function deviceRoutes(deps: {
       enrolled ? "enabled" : "disabled",
       `${enrolled ? "enabled" : "disabled"} by ${actorOf(req, deps.userRepo)}`
     );
-    res.status(200).json({ device: deps.deviceRepo.get(device.id) });
+    res.status(200).json({ device: exposeDevice(deps.deviceRepo.get(device.id)) });
   };
 
   router.post("/api/devices/:id/enable", setEnrolment(true));
@@ -317,7 +323,7 @@ export function deviceRoutes(deps: {
     }
 
     if (label === device.label) {
-      res.status(200).json({ device });
+      res.status(200).json({ device: exposeDevice(device) });
       return;
     }
 
@@ -327,7 +333,7 @@ export function deviceRoutes(deps: {
       "renamed",
       `renamed from "${device.label}" to "${label}" by ${actorOf(req, deps.userRepo)}`
     );
-    res.status(200).json({ device: deps.deviceRepo.get(device.id) });
+    res.status(200).json({ device: exposeDevice(deps.deviceRepo.get(device.id)) });
   });
 
   /**
@@ -359,7 +365,7 @@ export function deviceRoutes(deps: {
     }
 
     if (requested === device.resetPolicy) {
-      res.status(200).json({ device });
+      res.status(200).json({ device: exposeDevice(device) });
       return;
     }
 
@@ -369,7 +375,7 @@ export function deviceRoutes(deps: {
       "reset_policy",
       `reset policy changed from ${device.resetPolicy} to ${requested} by ${actorOf(req, deps.userRepo)}`
     );
-    res.status(200).json({ device: deps.deviceRepo.get(device.id) });
+    res.status(200).json({ device: exposeDevice(deps.deviceRepo.get(device.id)) });
   }));
 
   router.delete("/api/devices/:id", (req, res) => {

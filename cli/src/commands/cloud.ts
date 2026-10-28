@@ -59,6 +59,23 @@ export async function runCloud(
     return EXIT_OK;
   }
 
+  if (opts.isolation !== "disabled") {
+    // An older farm ignores the unknown multipart field and would run the job
+    // without isolation, silently. Check its published API before uploading.
+    let supported = false;
+    try {
+      const doc = await client.getJson<{ paths?: Record<string, any> }>("/openapi.json");
+      supported = Boolean(
+        doc?.paths?.["/run"]?.post?.requestBody?.content?.["multipart/form-data"]?.schema?.properties?.isolation
+      );
+    } catch {
+      supported = false;
+    }
+    if (!supported) {
+      return fail(io, new CliError("this farm does not support --isolation; upgrade DeviceYard on the farm"));
+    }
+  }
+
   // A temp directory rather than the cwd: a CI checkout is often read-only,
   // and leaving an e2e.tar.gz behind in someone's repo is its own bug report.
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "deviceyard-"));

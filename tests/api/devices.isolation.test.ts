@@ -72,3 +72,13 @@ test("the maintenance-mode device list hides isolationCapable unless isolation i
   const on = await request(app(true, runner, busy)).get("/api/devices");
   expect(on.body.devices[0].isolationCapable).toBe(true);
 });
+
+test("device mutation responses hide isolationCapable unless isolation is enabled", async () => {
+  deviceRepo.setIsolationCapable(ID, true);
+  const off = await request(app(false)).patch(`/api/devices/${ID}`).send({ label: "Renamed" });
+  expect(off.status).toBe(200);
+  expect(off.body.device.label).toBe("Renamed");
+  expect(off.body.device).not.toHaveProperty("isolationCapable");
+  const on = await request(app(true)).patch(`/api/devices/${ID}`).send({ label: "Renamed again" });
+  expect(on.body.device.isolationCapable).toBe(true);
+});

@@ -74,7 +74,7 @@ Results
   --artifacts-path <path>   where to put downloaded artifacts
   --help, -h                show this help
 
-Isolation cost: per-job costs about 15-40 s and about 1.5 GB of device writes per job, and per-flow costs that for every flow (a 27-flow suite writes about 40 GB). Details: docs/guide/isolation.md`;
+Isolation cost: per-job costs about 15-40 s and about 1.5 GB of device writes per job, and per-flow costs that for every flow (a 27-flow suite writes about 40 GB). Details: https://github.com/nmehlei/DeviceYard/blob/main/docs/guide/isolation.md`;
 
 /** Flags that consume the next argument, so "--name --help" is a name, not a help request. */
 const VALUE_FLAGS = new Set([

@@ -51,9 +51,10 @@ export async function installApk(
   // which is exactly what a CI-produced release APK is. The flag is the cheap
   // path; this is the one that always works.
   //
-  // Uninstalling costs nothing that is not already being lost: prepareDevice
-  // runs `pm clear <appId>` before every job (src/device.ts), so app data does
-  // not survive a run either way.
+  // Uninstalling costs nothing that is not already being lost: for a normal
+  // job prepareDevice runs `pm clear <appId>` (src/device.ts), so app data does
+  // not survive a run either way. For an isolated job the install targets a
+  // disposable work profile, so the uninstall removes only that user's copy.
   const needsReinstall =
     stderr.includes("INSTALL_FAILED_UPDATE_INCOMPATIBLE") ||
     stderr.includes("INSTALL_FAILED_VERSION_DOWNGRADE");

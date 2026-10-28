@@ -42,8 +42,9 @@ For `per-job` this happens around the whole job, for `per-flow` around each flow
 
 1. Any profile left over from an earlier job is removed.
 2. A work profile is created and started.
-3. The app is installed into the profile only. The main user's copy, if any, is
-   left alone.
+3. The app is installed into the profile. Android shares one package across
+   users, so this can also update the app's code for the main user; the main
+   user's data is left alone.
 4. The flows run against the profile's copy of the app. Flows run unchanged: the
    same YAML that works with plain Maestro works here, including `launchApp`
    options and restarts inside a flow.
@@ -60,6 +61,10 @@ step for `per-job`, and on each flow for `per-flow` (the dashboard labels it
 
 If creating the profile fails, the job fails at that step with the adb output.
 There is no retry and no fallback to the main user.
+
+If the main user has a copy of the app signed with a different key, installing
+into the profile fails with `INSTALL_FAILED_UPDATE_INCOMPATIBLE`. Uninstall that
+copy from the device first.
 
 ## What it costs
 

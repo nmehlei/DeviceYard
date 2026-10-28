@@ -291,6 +291,21 @@ test("per-job removes the profile when Maestro is killed by its timeout", async 
   expect(timeline[timeline.length - 1]).toBe("hook remove 10");
 });
 
+test("per-flow removes the flow's profile when Maestro is killed by its timeout", async () => {
+  const timeline: string[] = [];
+  const { hooks, removed } = fakeHooks(timeline);
+  const runner = fakeRunner(timeline, (file) => (file === "maestro-fork" ? { code: 1, stdout: "", stderr: TIMEOUT_STDERR } : undefined));
+  const opts = options(timeline, { runner }, "per-flow");
+  opts.isolation = { mode: "per-flow", hooks };
+  await runJob(opts);
+
+  const [first] = flowSteps(opts.jobId);
+  expect(first.status).toBe("failed");
+  expect(first.stderrPreview).toBe(TIMEOUT_STDERR);
+  expect(removed.map((s) => s.userId)).toContain(10);
+  expect(timeline).toContain("hook remove 10");
+});
+
 test("per-job removes the profile when the job throws mid-run", async () => {
   const timeline: string[] = [];
   let statusAtRemoval: string | undefined;
@@ -333,7 +348,8 @@ test("a profile that cannot be created fails the device step with the adb output
 
   const device = deviceStep(opts.jobId);
   expect(device.status).toBe("failed");
-  expect(device.stderrPreview).toBe("Error: couldn't create User.");
+  expect(device.stderrPreview).toContain("could not create a work profile");
+  expect(device.stderrPreview).toContain("Error: couldn't create User.");
   expect(steps(opts.jobId).slice(1).every((s) => s.status === "skipped")).toBe(true);
   expect(maestroRuns(timeline)).toEqual([]);
   expect(commands(timeline, " install ")).toEqual([]);
@@ -356,7 +372,8 @@ test("per-flow: a failed creation fails that flow, skips the rest, and creates n
 
   const [first, second] = flowSteps(opts.jobId);
   expect(first.status).toBe("failed");
-  expect(first.stderrPreview).toBe("Error: couldn't create User.");
+  expect(first.stderrPreview).toContain("could not create a work profile");
+  expect(first.stderrPreview).toContain("Error: couldn't create User.");
   expect(second.status).toBe("skipped");
   expect(attempts).toBe(1);
   expect(removed).toEqual([]);
@@ -409,7 +426,7 @@ test("an isolated job without hooks fails the device step with a clear message",
 
   const device = deviceStep(opts.jobId);
   expect(device.status).toBe("failed");
-  expect(device.stderrPreview).toBe('isolation "per-job" requires DeviceYard Pro');
+  expect(device.stderrPreview).toBe('isolation "per-job" requires an active DeviceYard Pro license');
   expect(steps(opts.jobId).slice(1).every((s) => s.status === "skipped")).toBe(true);
   expect(maestroRuns(timeline)).toEqual([]);
 });
