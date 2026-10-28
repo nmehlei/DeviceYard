@@ -118,9 +118,13 @@ export function bootstrap(env: NodeJS.ProcessEnv = process.env, editionFactory?:
 
   // Remove work profiles a crashed run left behind and record which devices
   // can isolate. Fire-and-forget: a slow or absent phone must never delay boot.
-  cleanUpFarmProfilesAtStartup(deviceRepo).catch((err) =>
-    log.warn("work profile startup cleanup failed", { error: (err as Error).message })
-  );
+  // The test suite sets DEVICEYARD_SKIP_PROFILE_CLEANUP (tests/helpers/skipProfileCleanup.ts)
+  // so the many bootstrap() calls do not leave adb probes running past test end.
+  if (!process.env.DEVICEYARD_SKIP_PROFILE_CLEANUP) {
+    cleanUpFarmProfilesAtStartup(deviceRepo).catch((err) =>
+      log.warn("work profile startup cleanup failed", { error: (err as Error).message })
+    );
+  }
 
   // Best-effort purge of the whole debug/ scratch tree. This is safe only
   // because nothing is running yet at boot - runJob's own per-job cleanup

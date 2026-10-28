@@ -117,6 +117,7 @@ test("startup cleanup covers every registered device, records capability, and su
     if (args[1] === "BAD") throw new Error("boom");
     return inner(file, args);
   };
+  const logSpy = jest.spyOn(console, "log").mockImplementation(() => {});
   const stored = new Map<string, boolean | null>();
   const devices = {
     list: () => [{ id: "BAD" }, { id: "GOOD" }],
@@ -124,5 +125,6 @@ test("startup cleanup covers every registered device, records capability, and su
   } as never;
   await expect(cleanUpFarmProfilesAtStartup(devices, runner)).resolves.toBeUndefined();
   expect(stored.get("GOOD")).toBe(true);
+  logSpy.mockRestore();
   expect(removals(calls).map((c) => c.join(" "))).toEqual(["-s GOOD shell pm remove-user 17"]);
 });
