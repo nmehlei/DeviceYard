@@ -92,8 +92,9 @@ warning with this cost; the CLI prints it to stderr unless `--quiet` is set.
 - **Pro**, with an active licence (see above).
 - **A device that supports work profiles.** The device must report the
   `android.software.managed_users` feature, and must have no work profile that
-  DeviceYard did not create (Android allows one managed profile per device; a
-  corporate profile or Samsung Secure Folder blocks isolation). The Devices page
+  DeviceYard did not create (Android allows one managed profile per device). A
+  device that already has such a profile (on some Samsung phones this may include
+  Secure Folder) is reported as not supporting isolation. The Devices page
   shows "Work-profile isolation: supported / not supported / unknown" for each
   device.
 - **A Maestro build that supports `--android-user`.** Stock Maestro cannot target
