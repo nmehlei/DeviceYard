@@ -42,6 +42,18 @@ export const USAGE = `deviceyard - run Maestro flows on a DeviceYard device farm
 
 Run 'deviceyard cloud --help' for the full flag list.`;
 
+export const CLOUD_HELP = `deviceyard cloud <app-file> <flows-dir> [flags]
+
+Selected flags (full list: docs/guide/cli.md):
+  --device-tags <tags>      require all comma-separated device tags (Pro)
+  --isolation <mode>        run in a disposable Android work profile (Pro):
+                            disabled (default), per-job or per-flow.
+                            Needs a device that supports work profiles.
+  --dry-run                 show what would run without submitting
+  --async                   print the job id and exit
+
+Isolation cost: per-job costs about 15-40 s and about 1.5 GB of device writes per job, and per-flow costs that for every flow (a 27-flow suite writes about 40 GB).`;
+
 export async function run(argv: string[], io: Io): Promise<number> {
   try {
     const [command, ...rest] = argv;
@@ -61,6 +73,11 @@ export async function run(argv: string[], io: Io): Promise<number> {
       throw new CliError(
         `unknown command "${command}"${near ? ` - did you mean "${near}"?` : ""}\n\n${USAGE}`,
       );
+    }
+
+    if (command === "cloud" && (rest.includes("--help") || rest.includes("-h"))) {
+      io.out(CLOUD_HELP);
+      return EXIT_OK;
     }
 
     if (command === "cloud") {

@@ -15,6 +15,15 @@ describe("run", () => {
     expect(out.join("\n")).toContain("deviceyard cloud <app-file> <flows-dir>");
   });
 
+  it("--help describes the isolation cost", async () => {
+    const { io: i, out } = io();
+    expect(await run(["cloud", "--help"], i)).toBe(EXIT_OK);
+    const text = out.join("\n");
+    expect(text).toContain("--isolation");
+    expect(text).toContain("about 15-40 s and about 1.5 GB of device writes per job");
+    expect(text).toContain("a 27-flow suite writes about 40 GB");
+  });
+
   it("prints the local version for --version", async () => {
     const { io: i, out } = io();
     expect(await run(["--version"], i)).toBe(EXIT_OK);

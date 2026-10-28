@@ -9,6 +9,8 @@ import { StepTimeline } from "../../components/StepTimeline";
 import { Skeleton } from "../../components/Skeleton";
 import { jobWaitingReason } from '../../lib/jobWaitingReason';
 
+const ISOLATION_GUIDE_URL = 'https://github.com/nmehlei/DeviceYard/blob/main/docs/guide/isolation.md';
+
 function JobPageSkeleton() {
   return (
     <main className="job-page" role="status" aria-label="Loading">
@@ -82,6 +84,7 @@ export default function JobPage() {
         </dd></div>
         <div><dt>Job ID</dt><dd className="mono">{detail.job.id}</dd></div>
         {!!detail.job.requiredDeviceTags?.length && <div><dt>Required device tags</dt><dd>{detail.job.requiredDeviceTags.join(', ')}</dd></div>}
+        {detail.job.isolation && detail.job.isolation !== 'disabled' && <div><dt>Isolation</dt><dd><span>{detail.job.isolation}</span>{' · '}<a href={ISOLATION_GUIDE_URL} target="_blank" rel="noreferrer">What this costs</a></dd></div>}
         <div><dt>Execution time</dt><dd>{detail.job.startedAt === null ? "Not started" : detail.job.finishedAt === null ? (terminal ? "Not recorded" : "In progress") : durationLabel(detail.job.startedAt, detail.job.finishedAt)}</dd></div>
         <div><dt>Created</dt><dd>{timestamp(detail.job.createdAt, "Not recorded")}</dd></div>
         <div><dt>Started</dt><dd>{timestamp(detail.job.startedAt, "Not started")}</dd></div>

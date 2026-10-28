@@ -55,6 +55,7 @@ export async function runCloud(
     }
     if (env) io.out(`would pass env: ${Object.keys(env).join(", ")}`);
     if (opts.requiredDeviceTags.length) io.out(`would require device tags: ${opts.requiredDeviceTags.join(', ')}`);
+    if (opts.isolation !== "disabled") io.out(`would run with isolation: ${opts.isolation}`);
     return EXIT_OK;
   }
 
@@ -76,12 +77,16 @@ export async function runCloud(
     if (env) form.set("env", JSON.stringify(env));
     if (opts.requiredDeviceTags.length) form.set('requiredDeviceTags', JSON.stringify(opts.requiredDeviceTags));
 
+    if (opts.isolation !== "disabled") form.set("isolation", opts.isolation);
+
     submitted = await client.postForm("/run", form);
   } catch (err) {
     return fail(io, err);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
+
+  if (!opts.quiet) for (const warning of submitted.warnings ?? []) io.err(`warning: ${warning}`);
 
   if (opts.async) {
     // The id and nothing else on stdout, so a pipeline can capture it with a

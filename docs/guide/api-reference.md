@@ -67,8 +67,9 @@ the scheduler claims it, never at submit time.
 | `flowsArchive` | file | yes | `.tar.gz` of the `e2e/` directory |
 | `flows` | field | yes | JSON array of flow identifiers, non-empty, all strings |
 | `env` | field | no | JSON object of `string → string`, forwarded as `-e KEY=VALUE` |
+| `isolation` | field | no | `disabled` (default), `per-job` or `per-flow`. Anything other than `disabled` needs Pro. See [isolation](isolation.md) |
 
-**`202 Accepted`** — `{ "id": string, "status": "queued" }`
+**`202 Accepted`** — `{ "id": string, "status": "queued" }`. When `isolation` is `per-flow`, the body also carries `"warnings": string[]` describing the cost of per-flow isolation. Without `isolation`, the body is unchanged.
 
 **Errors**
 

@@ -164,6 +164,7 @@ deviceyard cloud app-testing.apk e2e/scenarios --dry-run
 | `--include-tags <tags>` | Only run flows carrying one of these tags |
 | `--device-tags <tags>` | Require all comma-separated device tags (Pro); separate from flow tags. See [device routing](device-routing.md) |
 | `--exclude-tags <tags>` | Skip flows carrying one of these tags |
+| `--isolation <mode>` | Run in a disposable Android work profile (Pro): `disabled` (default), `per-job` or `per-flow`. `per-job` costs about 15-40 s and about 1.5 GB of device writes per job, and `per-flow` costs that for every flow (a 27-flow suite writes about 40 GB). See [isolation](isolation.md) |
 
 Tag filtering happens **on your machine**, before submission: the CLI already
 reads each flow's header to build the job, so it reads `tags:` while it is

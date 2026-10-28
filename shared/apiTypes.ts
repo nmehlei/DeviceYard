@@ -105,4 +105,6 @@ export interface VersionResponse {
 export interface RunResponse {
   id: string;
   status: string;
+  /** Only present for per-flow isolation. */
+  warnings?: string[];
 }

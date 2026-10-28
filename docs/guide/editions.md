@@ -13,10 +13,11 @@ organisations are access-control tenants, not separate subscriptions.
 | Maintenance mode and OpenTelemetry | Included | Included |
 | Health-aware scheduling and quarantine | — | Included |
 | Device-tag routing | — | Included |
+| Work-profile isolation | — | Included |
 
 Community retains device registrations and history when you switch its active
 device. Stop or finish work and close remote-control sessions before changing
-that selection. For Pro, see [device routing](device-routing.md) and
+that selection. For Pro, see [device routing](device-routing.md), [isolation](isolation.md) and
 [pricing](https://deviceyard.codebakery.net/pricing/).
 
 ## Install and activate
