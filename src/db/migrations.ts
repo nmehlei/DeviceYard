@@ -269,9 +269,12 @@ const MIGRATIONS: string[] = [
   INSERT INTO maintenance_settings(singleton, requested) VALUES (1, 0);`,
   `ALTER TABLE devices ADD COLUMN tags_json TEXT NOT NULL DEFAULT '[]';
    ALTER TABLE jobs ADD COLUMN required_device_tags_json TEXT NOT NULL DEFAULT '[]';`,
+  `ALTER TABLE jobs ADD COLUMN isolation TEXT NOT NULL DEFAULT 'disabled' CHECK(isolation IN ('disabled','per-job','per-flow'));
+   ALTER TABLE flow_runs ADD COLUMN profile_ms INTEGER;
+   ALTER TABLE devices ADD COLUMN isolation_capable INTEGER CHECK(isolation_capable IN (0,1));`,
 ];
 
-export const SCHEMA_VERSION = 14;
+export const SCHEMA_VERSION = 15;
 
 export function migrate(db: Db): number {
   const row = db.get<{ user_version: number }>("PRAGMA user_version");

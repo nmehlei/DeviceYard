@@ -2,6 +2,7 @@ import type { Db } from "../db/driver";
 import { maskEnvForStorage } from "../env";
 import { log } from "../telemetry/log";
 import { parseDeviceTags } from '../../shared/deviceTags';
+import { parseIsolation, type IsolationMode } from '../../shared/isolation';
 import type {
   ArtifactKind,
   ArtifactRow,
@@ -32,6 +33,7 @@ function preview(text: string | undefined): string | null {
 }
 
 interface JobRecord {
+  isolation: string;
   required_device_tags_json: string;
   id: string;
   org: string;
@@ -61,10 +63,12 @@ interface StepRecord {
   warnings: string | null;
   stdout_preview: string | null;
   stderr_preview: string | null;
+  profile_ms: number | null;
 }
 
 function toJob(record: JobRecord): JobRow {
   return {
+    isolation: parseIsolation(record.isolation),
     requiredDeviceTags: parseDeviceTags(JSON.parse(record.required_device_tags_json)),
     id: record.id,
     org: record.org,
@@ -165,6 +169,7 @@ function toStep(record: StepRecord): StepRow {
     warnings: parseWarnings(record.warnings),
     stdoutPreview: record.stdout_preview,
     stderrPreview: record.stderr_preview,
+    profileMs: record.profile_ms,
   };
 }
 
@@ -181,17 +186,19 @@ export class JobRepository {
     appId?: string | null,
     appVersion?: string | null,
     preparedId?: string,
-    requiredDeviceTags: string[] = []
+    requiredDeviceTags: string[] = [],
+    isolation: IsolationMode = 'disabled'
   ): JobRow {
     const createdAt = this.now();
     const id = preparedId ?? `${createdAt}-${Math.random().toString(36).slice(2, 8)}`;
     const envJson = env === undefined ? null : JSON.stringify(maskEnvForStorage(env));
     const tagsJson = JSON.stringify(parseDeviceTags(requiredDeviceTags));
+    const isolationMode = parseIsolation(isolation);
 
     this.db.exec("BEGIN");
     try {
       this.db.run(
-        "INSERT INTO jobs (id, org, status, created_at, env_json, app_id, app_version, required_device_tags_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO jobs (id, org, status, created_at, env_json, app_id, app_version, required_device_tags_json, isolation) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         id,
         org,
         "queued",
@@ -199,7 +206,8 @@ export class JobRepository {
         envJson,
         appId ?? null,
         appVersion ?? null,
-        tagsJson
+        tagsJson,
+        isolationMode
       );
 
       const names = [...SETUP_STEPS.map((name) => ({ kind: "setup", name })), ...flows.map((name) => ({ kind: "flow", name }))];
@@ -294,6 +302,7 @@ export class JobRepository {
       artifactDir?: string;
       stdoutPreview?: string;
       stderrPreview?: string;
+      profileMs?: number;
     }
   ): StepRow {
     this.db.run(
@@ -301,7 +310,7 @@ export class JobRepository {
          SET status = ?, exit_code = ?, finished_at = ?,
              warnings = ?, artifact_dir = COALESCE(?, artifact_dir),
              resolved_path = COALESCE(?, resolved_path),
-             stdout_preview = ?, stderr_preview = ?
+             stdout_preview = ?, stderr_preview = ?, profile_ms = ?
        WHERE id = ?`,
       result.status,
       result.exitCode ?? null,
@@ -311,6 +320,7 @@ export class JobRepository {
       result.resolvedPath ?? null,
       preview(result.stdoutPreview),
       preview(result.stderrPreview),
+      result.profileMs ?? null,
       stepId
     );
 
@@ -371,7 +381,7 @@ export class JobRepository {
     const startedAt = this.now();
     const won = this.db.get<{ id: string }>(
       `UPDATE jobs SET status = 'running', started_at = ?, device_id = ?
-        WHERE id = (SELECT id FROM jobs WHERE status = 'queued' AND required_device_tags_json = '[]' ORDER BY created_at ASC, rowid ASC LIMIT 1)
+        WHERE id = (SELECT id FROM jobs WHERE status = 'queued' AND required_device_tags_json = '[]' AND isolation = 'disabled' ORDER BY created_at ASC, rowid ASC LIMIT 1)
           AND status = 'queued'
           AND NOT EXISTS (SELECT 1 FROM maintenance_settings WHERE requested = 1)
           AND (? = 0 OR NOT EXISTS (SELECT 1 FROM jobs WHERE status = 'running'))
