@@ -106,8 +106,8 @@ warning with this cost; the CLI prints it to stderr unless `--quiet` is set.
   a work profile: it starts the main user's copy of the app and acts on the main
   user. Isolated jobs therefore use a Maestro build that adds a
   `maestro test --android-user <id>` option, published at
-  <https://github.com/nmehlei/Maestro> (release `cli-2.11.0-android-user.1`,
-  based on Maestro 2.11.0). Set `DEVICEYARD_ISOLATION_MAESTRO` to the path of that
+  <https://github.com/nmehlei/Maestro> (release `cli-2.12.0-android-user.1`,
+  based on Maestro 2.12.0). Set `DEVICEYARD_ISOLATION_MAESTRO` to the path of that
   build's `maestro` binary; the default is `maestro`. Only isolated jobs use it;
   every other job keeps running with the official Maestro. Without the option,
   the build behaves like the official release. A job whose Maestro does not
