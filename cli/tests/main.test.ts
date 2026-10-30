@@ -1,4 +1,5 @@
 import { run, type Io } from "../src/main";
+import { KNOWN_OPTIONS } from "../src/args";
 import { EXIT_OK, EXIT_ERROR } from "../src/exit";
 
 function io(env: NodeJS.ProcessEnv = {}) {
@@ -13,6 +14,28 @@ describe("run", () => {
     const { io: i, out } = io();
     expect(await run(["--help"], i)).toBe(EXIT_OK);
     expect(out.join("\n")).toContain("deviceyard cloud <app-file> <flows-dir>");
+  });
+
+  it("--help describes the isolation cost", async () => {
+    const { io: i, out } = io();
+    expect(await run(["cloud", "--help"], i)).toBe(EXIT_OK);
+    const text = out.join("\n");
+    expect(text).toContain("--isolation");
+    expect(text).toContain("about 15-40 s and about 1.5 GB of device writes per job");
+    expect(text).toContain("a 27-flow suite writes about 40 GB");
+  });
+
+  it("lists every cloud option in cloud --help", async () => {
+    const { io: i, out } = io();
+    await run(["cloud", "-h"], i);
+    const text = out.join("\n");
+    for (const o of KNOWN_OPTIONS) expect(text).toContain(o);
+  });
+
+  it("does not treat a flag's value as a help request", async () => {
+    const { io: i, out } = io();
+    await run(["cloud", "--name", "--help"], i);
+    expect(out.join("\n")).not.toContain("Isolation cost");
   });
 
   it("prints the local version for --version", async () => {

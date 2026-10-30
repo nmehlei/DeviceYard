@@ -107,3 +107,30 @@ test("a failing cleanup step does not block the job", async () => {
   expect(result.ready).toBe(true);
   expect(result.warnings.some((w) => /clear/i.test(w))).toBe(true);
 });
+
+test("an isolated preparation does not clear the primary user's app data", async () => {
+  const { runner, calls } = recordingRunner((_f, args) =>
+    isDevicesQuery(args) ? { code: 0, stdout: devicesOutput("device"), stderr: "" } : undefined
+  );
+
+  const result = await prepareDevice(DEVICE, APP, runner, "app-only", true);
+
+  expect(result.ready).toBe(true);
+  const flat = calls.map((c) => c.join(" "));
+  expect(flat.some((c) => c.includes("pm clear"))).toBe(false);
+  expect(flat).toContainEqual(expect.stringContaining(`am force-stop ${APP}`));
+});
+
+test("every preparation disables airplane mode, and a failure is only a warning", async () => {
+  const { runner, calls } = recordingRunner((_f, args) => {
+    if (isDevicesQuery(args)) return { code: 0, stdout: devicesOutput("device"), stderr: "" };
+    if (args.includes("airplane-mode")) return { code: 1, stdout: "", stderr: "nope" };
+    return undefined;
+  });
+
+  const result = await prepareDevice(DEVICE, APP, runner);
+
+  expect(result.ready).toBe(true);
+  expect(calls).toContainEqual(["adb", "-s", DEVICE, "shell", "cmd", "connectivity", "airplane-mode", "disable"]);
+  expect(result.warnings.some((w) => w.startsWith("disable airplane mode failed"))).toBe(true);
+});

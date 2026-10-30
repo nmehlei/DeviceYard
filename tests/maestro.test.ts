@@ -151,3 +151,40 @@ describe("runMaestroFlow with env", () => {
     ]);
   });
 });
+
+test("runMaestroFlow uses the given Maestro binary and puts its test args right after \"test\"", async () => {
+  const calls: Array<{ file: string; args: string[] }> = [];
+  const fakeRunner: CommandRunner = async (file, args) => {
+    calls.push({ file, args });
+    return { code: 0, stdout: "", stderr: "" };
+  };
+
+  await runMaestroFlow("d", "flow.yaml", fakeRunner, "/dbg", { A: "1" }, {
+    file: "/opt/fork/maestro",
+    testArgs: ["--android-user", "17"],
+  });
+
+  expect(calls).toEqual([
+    {
+      file: "/opt/fork/maestro",
+      args: ["--device", "d", "test", "--android-user", "17", "--debug-output", "/dbg", "--flatten-debug-output", "-e", "A=1", "flow.yaml"],
+    },
+  ]);
+});
+
+test("runMaestroFlow without the override keeps today's exact argument list", async () => {
+  const calls: Array<{ file: string; args: string[] }> = [];
+  const fakeRunner: CommandRunner = async (file, args) => {
+    calls.push({ file, args });
+    return { code: 0, stdout: "", stderr: "" };
+  };
+
+  await runMaestroFlow("d", "flow.yaml", fakeRunner, "/dbg", { A: "1" });
+
+  expect(calls).toEqual([
+    {
+      file: "maestro",
+      args: ["--device", "d", "test", "--debug-output", "/dbg", "--flatten-debug-output", "-e", "A=1", "flow.yaml"],
+    },
+  ]);
+});

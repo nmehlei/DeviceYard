@@ -4,6 +4,7 @@ import { isResetPolicy } from "./rows";
 import type { DeviceEventKind, DeviceEventRow, DeviceRow, ResetPolicy } from "./rows";
 
 interface DeviceRecord {
+  isolation_capable: number | null;
   tags_json: string;
   id: string;
   label: string;
@@ -23,6 +24,7 @@ interface DeviceEventRecord {
 
 function toDevice(record: DeviceRecord): DeviceRow {
   return {
+    isolationCapable: record.isolation_capable === null ? null : record.isolation_capable === 1,
     tags: parseDeviceTags(JSON.parse(record.tags_json)),
     id: record.id,
     label: record.label,
@@ -163,6 +165,10 @@ export class DeviceRepository {
       this.recordEvent(id, 'tags', `tags set to ${JSON.stringify(validated)} by ${actor}`);
       this.db.exec('COMMIT');
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
+  }
+
+  setIsolationCapable(id: string, capable: boolean | null): void {
+    this.db.run("UPDATE devices SET isolation_capable = ? WHERE id = ?", capable === null ? null : capable ? 1 : 0, id);
   }
 
   updateModel(id: string, model: string): void {

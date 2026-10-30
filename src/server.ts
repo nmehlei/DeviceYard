@@ -15,6 +15,14 @@ import express, {
 } from "express";
 import multer from "multer";
 import { parseDeviceTags } from '../shared/deviceTags';
+import { parseIsolation, type IsolationMode } from '../shared/isolation';
+
+const PER_FLOW_ISOLATION_WARNING = 'per-flow isolation creates a work profile for every flow: about 15-40 s and 1.5 GB of device writes per flow';
+
+function waitingReasonFallback(job: { requiredDeviceTags: string[]; isolation: IsolationMode } | undefined): string | null {
+  if (job?.requiredDeviceTags.length) return 'PRO_ROUTING_REQUIRED';
+  return job && job.isolation !== 'disabled' ? 'PRO_ISOLATION_REQUIRED' : null;
+}
 import { context, type Context } from "@opentelemetry/api";
 import { Scheduler } from "./scheduler";
 import type { EditionFactory, EditionRuntime } from './editions/runtime';
@@ -322,6 +330,9 @@ export function createServer(deps: ServerDeps): ServerHandle {
               // job queued since the change. A device removed between claim
               // and dispatch falls back to the weakest policy.
               resetPolicy: deps.deviceRepo.get(deviceId)?.resetPolicy,
+              // Without the edition's hooks an isolated job fails its device
+              // step with a clear message rather than running unisolated.
+              isolation: { mode: deps.repo.getJob(jobId)?.isolation ?? 'disabled', hooks: edition?.isolation },
               onChange: (id) => events.publish(id),
             })
           );
@@ -360,7 +371,7 @@ export function createServer(deps: ServerDeps): ServerHandle {
     hasWaitingJobFor: (deviceId) => {
       if (scheduler.waitingJobFor) return scheduler.waitingJobFor(deviceId);
       if (edition && !edition.policy.canUse(deviceId)) return undefined;
-      const jobId = deps.repo.listQueuedJobs().find(job => job.requiredDeviceTags.length === 0)?.id;
+      const jobId = deps.repo.listQueuedJobs().find(job => job.requiredDeviceTags.length === 0 && job.isolation === 'disabled')?.id;
       if (!jobId) return undefined;
       // Read the cap the same way Scheduler.dispatch does (src/scheduler.ts):
       // at the cap, dispatch returns before it ever looks at device free-ness,
@@ -579,6 +590,20 @@ export function createServer(deps: ServerDeps): ServerHandle {
           return;
         }
 
+        let isolation: IsolationMode;
+        try {
+          isolation = parseIsolation(req.body?.isolation);
+        } catch (err) {
+          cleanupUploadedFiles(files);
+          res.status(400).json({ error: err instanceof Error ? err.message : 'invalid isolation' });
+          return;
+        }
+        if (isolation !== 'disabled' && !edition?.isolation?.enabled()) {
+          cleanupUploadedFiles(files);
+          res.status(403).json({error: 'Work-profile isolation requires an active Pro license', code: 'PRO_ISOLATION_REQUIRED'});
+          return;
+        }
+
         let env: Record<string, string> | undefined;
         try {
           env = parseEnvField(req.body?.env);
@@ -631,7 +656,13 @@ export function createServer(deps: ServerDeps): ServerHandle {
           res.status(403).json({error: 'Device routing requires an active Pro license', code: 'PRO_ROUTING_REQUIRED'});
           return;
         }
-        const job = deps.repo.createJob(req.org as string, flows as string[], env, appId, appVersion, preparedId, requiredDeviceTags);
+        if (isolation !== 'disabled' && !edition?.isolation?.enabled()) {
+          await jobInputs.remove(preparedId);
+          cleanupUploadedFiles(files);
+          res.status(403).json({error: 'Work-profile isolation requires an active Pro license', code: 'PRO_ISOLATION_REQUIRED'});
+          return;
+        }
+        const job = deps.repo.createJob(req.org as string, flows as string[], env, appId, appVersion, preparedId, requiredDeviceTags, isolation);
         recordJobSubmitted(req.org as string);
         filesOwnedByJob = true;
 
@@ -662,7 +693,11 @@ export function createServer(deps: ServerDeps): ServerHandle {
           });
         }
 
-        res.status(202).json({ id: job.id, status: "queued" });
+        res.status(202).json({
+          id: job.id,
+          status: "queued",
+          ...(isolation === 'per-flow' ? { warnings: [PER_FLOW_ISOLATION_WARNING] } : {}),
+        });
       } catch (err) {
         // Catch-all for anything unexpected thrown synchronously anywhere
         // above (e.g. deviceRepo.listEnrolled or repo.createJob hitting a
@@ -828,7 +863,7 @@ export function createServer(deps: ServerDeps): ServerHandle {
   // /jobs above, so every route here is org-scoped the same way.
   app.use(auth, jobRoutes({ repo: deps.repo, events, dataDir: deps.dataDir,
     waitingReason: id => app.scheduler.jobWaitingReason ? app.scheduler.jobWaitingReason(id) :
-      (deps.repo.getJob(id)?.requiredDeviceTags.length ? 'PRO_ROUTING_REQUIRED' : null) }));
+      waitingReasonFallback(deps.repo.getJob(id)) }));
   if (edition?.deviceRouting) app.use(auth, edition.deviceRouting.routes);
   app.use(auth, maintenanceRoutes(maintenance));
   app.use(auth, fileRoutes({ repo: deps.repo, dataDir: deps.dataDir }));
@@ -842,6 +877,7 @@ export function createServer(deps: ServerDeps): ServerHandle {
       deviceRepo: deps.deviceRepo,
       userRepo: deps.userRepo,
       runner: deps.runner,
+      isolationEnabled: !!edition?.isolation,
       controlLeases,
       hasLiveViewers: (deviceId) => controlHub.viewerCount(deviceId) > 0,
     })

@@ -2,6 +2,7 @@ import { toLegacyJob } from "../../src/store/legacyView";
 import type { JobRow, StepRow } from "../../src/store/rows";
 
 const job: JobRow = {
+  isolation: "disabled",
   requiredDeviceTags: [],
   id: "j1",
   org: "donable",

@@ -67,8 +67,9 @@ the scheduler claims it, never at submit time.
 | `flowsArchive` | file | yes | `.tar.gz` of the `e2e/` directory |
 | `flows` | field | yes | JSON array of flow identifiers, non-empty, all strings |
 | `env` | field | no | JSON object of `string → string`, forwarded as `-e KEY=VALUE` |
+| `isolation` | field | no | `disabled` (default), `per-job` or `per-flow`. Anything other than `disabled` needs Pro. See [isolation](isolation.md) |
 
-**`202 Accepted`** — `{ "id": string, "status": "queued" }`
+**`202 Accepted`** — `{ "id": string, "status": "queued" }`. When `isolation` is `per-flow`, the body also carries `"warnings": string[]` describing the cost of per-flow isolation. Without `isolation`, the body is unchanged.
 
 **Errors**
 
@@ -87,6 +88,8 @@ the scheduler claims it, never at submit time.
 | `413` | `{"error":"apk exceeds the upload limit of 512 MB - an admin can change it on the Admin page"}` | A file above the configured cap |
 | `400` | `{"error":"unexpected file field \"…\""}` | A file part other than `apk` or `flowsArchive` |
 | `400` | `{"error":"upload rejected: LIMIT_FILE_COUNT"}` | More than two files, or an implausible number of parts or fields |
+| `400` | `{"error":"isolation must be one of disabled, per-job, per-flow"}` | `isolation` is not one of the three modes |
+| `403` | `{"error":"Work-profile isolation requires an active Pro license","code":"PRO_ISOLATION_REQUIRED"}` | `isolation` is not `disabled` and there is no active Pro isolation |
 | `503` | `{"error":"no device is enrolled - add a device and enable it from the Devices page first"}` | The pool is empty — no device enrolled at all. **Never** returned just because every enrolled device is currently busy; a job queues instead |
 
 Every `400` deletes the uploaded files before responding — a rejected request

@@ -29,7 +29,10 @@ export type StepStatus = "queued" | "running" | "passed" | "failed" | "skipped";
 export type StepKind = "setup" | "flow";
 export type ArtifactKind = "screenshot" | "recording" | "hierarchy" | "stdout" | "stderr" | "log";
 
+export type IsolationMode = "disabled" | "per-job" | "per-flow";
+
 export interface JobRow {
+  isolation?: IsolationMode;
   requiredDeviceTags?: string[];
   waitingReason?: string | null;
   id: string;
@@ -57,6 +60,8 @@ export interface StepRow {
   resolvedPath: string | null;
   artifactDir: string | null;
   warnings: string[];
+  /** Work-profile setup time, when the step ran in an isolation profile. */
+  profileMs?: number | null;
   stdoutPreview: string | null;
   stderrPreview: string | null;
 }
@@ -109,6 +114,8 @@ export interface DeviceSetupCheckEntry {
 export type ResetPolicy = "app-only" | "app-and-browser";
 
 export interface DeviceEntry {
+  /** Present only when the edition provides isolation; null while unprobed. */
+  isolationCapable?: boolean | null;
   tags?: string[];
   isAvailable?: boolean;
   edition?: 'community' | 'pro';

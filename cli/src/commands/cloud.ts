@@ -55,7 +55,25 @@ export async function runCloud(
     }
     if (env) io.out(`would pass env: ${Object.keys(env).join(", ")}`);
     if (opts.requiredDeviceTags.length) io.out(`would require device tags: ${opts.requiredDeviceTags.join(', ')}`);
+    if (opts.isolation !== "disabled") io.out(`would run with isolation: ${opts.isolation}`);
     return EXIT_OK;
+  }
+
+  if (opts.isolation !== "disabled") {
+    // An older farm ignores the unknown multipart field and would run the job
+    // without isolation, silently. Check its published API before uploading.
+    let supported = false;
+    try {
+      const doc = await client.getJson<{ paths?: Record<string, any> }>("/openapi.json");
+      supported = Boolean(
+        doc?.paths?.["/run"]?.post?.requestBody?.content?.["multipart/form-data"]?.schema?.properties?.isolation
+      );
+    } catch {
+      supported = false;
+    }
+    if (!supported) {
+      return fail(io, new CliError("this farm does not support --isolation; upgrade DeviceYard on the farm"));
+    }
   }
 
   // A temp directory rather than the cwd: a CI checkout is often read-only,
@@ -76,12 +94,16 @@ export async function runCloud(
     if (env) form.set("env", JSON.stringify(env));
     if (opts.requiredDeviceTags.length) form.set('requiredDeviceTags', JSON.stringify(opts.requiredDeviceTags));
 
+    if (opts.isolation !== "disabled") form.set("isolation", opts.isolation);
+
     submitted = await client.postForm("/run", form);
   } catch (err) {
     return fail(io, err);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
+
+  if (!opts.quiet) for (const warning of submitted.warnings ?? []) io.err(`warning: ${warning}`);
 
   if (opts.async) {
     // The id and nothing else on stdout, so a pipeline can capture it with a

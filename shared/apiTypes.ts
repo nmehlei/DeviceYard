@@ -5,6 +5,8 @@
 // it. Both consumers - src/mcp/ and cli/ - depend on these shapes being
 // right, and the integration tests on each side are what catch a drift.
 
+import type { IsolationMode } from "./isolation";
+
 export type JobStatus = "queued" | "running" | "done" | "failed";
 export type StepStatus = "queued" | "running" | "passed" | "failed" | "skipped";
 export type StepKind = "setup" | "flow";
@@ -34,11 +36,13 @@ export interface StepRow {
   warnings: string[];
   stdoutPreview: string | null;
   stderrPreview: string | null;
+  profileMs?: number | null;
   /** Added by GET /api/jobs/:id on top of the stored row. */
   artifacts?: ArtifactRow[];
 }
 
 export interface JobRow {
+  isolation?: IsolationMode;
   requiredDeviceTags?: string[];
   waitingReason?: string | null;
   id: string;
@@ -101,4 +105,6 @@ export interface VersionResponse {
 export interface RunResponse {
   id: string;
   status: string;
+  /** Only present for per-flow isolation. */
+  warnings?: string[];
 }

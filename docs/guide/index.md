@@ -25,6 +25,7 @@ by device tags. See [editions](editions.md) for the distinction.
 | Watching a device's screen, or taking control of it, from the dashboard | [Remote control](remote-control.md) |
 | Running or deploying the farm itself | [Operating the farm](operating.md) |
 | Sending traces, logs and metrics to your own backend | [Observability](observability.md) |
+| Testing sign-in from a clean account state (Pro) | [Work-profile isolation](isolation.md) |
 | Looking up one endpoint's exact contract | [API reference](api-reference.md) |
 
 ## The five-minute version

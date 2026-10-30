@@ -12,6 +12,8 @@ assertions, not automatically detected hardware capabilities. Every requested ta
 must be present on the selected device. No match leaves the job queued; unrelated
 compatible jobs can proceed. Jobs without requirements retain normal scheduling.
 
+To run jobs in a clean Android work profile instead, see [isolation](isolation.md).
+
 The multipart `POST /run` equivalent is `requiredDeviceTags=["tablet","camera"]`.
 At most 16 unique tags are accepted. Each is 1–32 lowercase ASCII letters, digits
 or hyphens and begins with a letter or digit. Invalid requirements are rejected.

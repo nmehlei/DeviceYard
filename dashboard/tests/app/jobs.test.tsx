@@ -132,3 +132,22 @@ test("redirects to /login instead of rendering when the session is invalid", asy
 
   await waitFor(() => expect(navigate).toHaveBeenCalledWith("/login"));
 });
+
+test("job page shows isolation only when not disabled", async () => {
+  (useJobEventsModule.useJobEvents as jest.Mock).mockReturnValue({
+    detail: { ...detail, job: { ...detail.job, isolation: "per-flow" } }, status: "live",
+  });
+  const { unmount } = render(<JobPage />);
+  expect(await screen.findByText("Isolation")).toBeInTheDocument();
+  expect(screen.getByText("per-flow")).toBeInTheDocument();
+  const link = screen.getByRole("link", { name: /what this costs/i });
+  expect(link).toHaveAttribute("href", expect.stringContaining("docs/guide/isolation.md"));
+  unmount();
+
+  (useJobEventsModule.useJobEvents as jest.Mock).mockReturnValue({
+    detail: { ...detail, job: { ...detail.job, isolation: "disabled" } }, status: "live",
+  });
+  render(<JobPage />);
+  await screen.findByText("Job ID");
+  expect(screen.queryByText("Isolation")).not.toBeInTheDocument();
+});

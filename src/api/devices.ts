@@ -10,6 +10,7 @@ import type { ControlLeases } from "../control/leases";
 import { isResetPolicy, RESET_POLICIES } from "../store/rows";
 import type { UserRepository } from "../store/userRepository";
 import type { DevicePolicy } from "../editions/policy";
+import { probeIsolationCapability } from "../workProfiles";
 import { buildProbeArgs, checkResult, findSetupCheck, parseProbeOutput, unknownSetupChecks } from "../deviceSetupChecks";
 
 export type { ScreenshotCapturer };
@@ -87,6 +88,9 @@ export function deviceRoutes(deps: {
    * existing callers and tests are unaffected; absent means "nobody". */
   hasLiveViewers?: (deviceId: string) => boolean;
   maintenance?: MaintenanceCoordinator;
+  /** True when the edition provides work-profile isolation: the device list
+   * then probes, persists and reports isolationCapable. */
+  isolationEnabled?: boolean;
 }): Router {
   const router = Router();
   // Bind checks to the handlers so Express path aliases cannot bypass policy.
@@ -106,6 +110,12 @@ export function deviceRoutes(deps: {
     finally { release?.(); releaseOperation?.(); }
   };
   const runner = deps.runner ?? deviceOpsRunner;
+  /** isolationCapable is only meaningful (and only reported) when the edition provides isolation. */
+  const exposeDevice = <T extends { isolationCapable?: unknown }>(device: T | undefined) => {
+    if (!device || deps.isolationEnabled) return device;
+    const { isolationCapable: _hidden, ...rest } = device;
+    return rest;
+  };
   const captureScreenshot = deps.captureScreenshot ?? captureDeviceScreenshot;
   let maestroVersion: string | undefined;
   let versionCheckedAt = 0;
@@ -135,7 +145,8 @@ export function deviceRoutes(deps: {
   router.get("/api/devices", async (_req, res) => {
     const release = deps.maintenance?.acquire('operation');
     if (deps.maintenance && !release) {
-      res.json({ devices: deps.deviceRepo.list().map(device => ({ ...device,
+      res.json({ devices: deps.deviceRepo.list().map(({ isolationCapable, ...device }) => ({ ...device,
+        ...(deps.isolationEnabled ? { isolationCapable } : {}),
         state: lastKnownState.get(device.id) ?? 'unknown', setupChecks: unknownSetupChecks(),
         ...(deps.policy ? { isAvailable: deps.policy.canUse(device.id), edition: deps.policy.snapshot().edition } : {}),
       })), stale: true, maintenance: deps.maintenance.snapshot(), runnerVersion: readVersion(), artifactBytes: deps.repo.totalArtifactBytes() });
@@ -172,6 +183,17 @@ export function deviceRoutes(deps: {
             }
           }
 
+          let isolationCapable = device.isolationCapable;
+          if (deps.isolationEnabled && state === "device") {
+            // null means "could not read" (e.g. the 5 s runner timed out):
+            // keep the last known value rather than erase it.
+            const probed = await probeIsolationCapability(device.id, runner);
+            if (probed !== null) {
+              isolationCapable = probed;
+              if (probed !== device.isolationCapable) deps.deviceRepo.setIsolationCapable(device.id, probed);
+            }
+          }
+
           const previousState = lastKnownState.get(device.id);
           if (previousState !== undefined && previousState !== state) {
             deps.deviceRepo.recordEvent(device.id, "state_change", `${previousState} -> ${state}`);
@@ -188,6 +210,7 @@ export function deviceRoutes(deps: {
             state,
             resetPolicy: device.resetPolicy,
             setupChecks,
+            ...(deps.isolationEnabled ? { isolationCapable } : {}),
           };
         })
       );
@@ -213,7 +236,7 @@ export function deviceRoutes(deps: {
 
     const device = deps.deviceRepo.add(trimmedId, typeof label === "string" && label.trim() ? label.trim() : trimmedId);
     deps.deviceRepo.recordEvent(device.id, "added", `registered by ${actorOf(req, deps.userRepo)}`);
-    res.status(201).json({ device, setupInstructions: SETUP_INSTRUCTIONS });
+    res.status(201).json({ device: exposeDevice(device), setupInstructions: SETUP_INSTRUCTIONS });
   });
 
   const setEnrolment = (enrolled: boolean) => (req: Request, res: Response) => {
@@ -227,7 +250,7 @@ export function deviceRoutes(deps: {
       return;
     }
     if (device.isActive === enrolled) {
-      res.status(200).json({ device });
+      res.status(200).json({ device: exposeDevice(device) });
       return;
     }
 
@@ -250,7 +273,7 @@ export function deviceRoutes(deps: {
       enrolled ? "enabled" : "disabled",
       `${enrolled ? "enabled" : "disabled"} by ${actorOf(req, deps.userRepo)}`
     );
-    res.status(200).json({ device: deps.deviceRepo.get(device.id) });
+    res.status(200).json({ device: exposeDevice(deps.deviceRepo.get(device.id)) });
   };
 
   router.post("/api/devices/:id/enable", setEnrolment(true));
@@ -300,7 +323,7 @@ export function deviceRoutes(deps: {
     }
 
     if (label === device.label) {
-      res.status(200).json({ device });
+      res.status(200).json({ device: exposeDevice(device) });
       return;
     }
 
@@ -310,7 +333,7 @@ export function deviceRoutes(deps: {
       "renamed",
       `renamed from "${device.label}" to "${label}" by ${actorOf(req, deps.userRepo)}`
     );
-    res.status(200).json({ device: deps.deviceRepo.get(device.id) });
+    res.status(200).json({ device: exposeDevice(deps.deviceRepo.get(device.id)) });
   });
 
   /**
@@ -342,7 +365,7 @@ export function deviceRoutes(deps: {
     }
 
     if (requested === device.resetPolicy) {
-      res.status(200).json({ device });
+      res.status(200).json({ device: exposeDevice(device) });
       return;
     }
 
@@ -352,7 +375,7 @@ export function deviceRoutes(deps: {
       "reset_policy",
       `reset policy changed from ${device.resetPolicy} to ${requested} by ${actorOf(req, deps.userRepo)}`
     );
-    res.status(200).json({ device: deps.deviceRepo.get(device.id) });
+    res.status(200).json({ device: exposeDevice(deps.deviceRepo.get(device.id)) });
   }));
 
   router.delete("/api/devices/:id", (req, res) => {

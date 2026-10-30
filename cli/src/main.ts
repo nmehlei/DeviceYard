@@ -40,7 +40,56 @@ export const USAGE = `deviceyard - run Maestro flows on a DeviceYard device farm
   deviceyard login | logout | whoami                manage the stored credential
   deviceyard upgrade                                update a binary install
 
-Run 'deviceyard cloud --help' for the full flag list.`;
+Run 'deviceyard cloud --help' for the cloud flags.`;
+
+export const CLOUD_HELP = `deviceyard cloud <app-file> <flows-dir> [flags]
+
+Connection
+  --api-key <key>           API key or token (default: DEVICEYARD_API_KEY)
+  --url <url>               the farm (default: DEVICEYARD_URL)
+  --org <id>                org to act as (see 'deviceyard whoami')
+Choosing flows
+  --app-file <path>         the app file, instead of the positional argument
+  --flows <path>            the flows path, instead of the positional argument
+  --exclude-flows <paths>   comma-separated flow ids or directories to skip
+  --include-tags <tags>     only run flows carrying one of these tags
+  --exclude-tags <tags>     skip flows carrying one of these tags
+  --device-tags <tags>      require all comma-separated device tags (Pro)
+  --isolation <mode>        run in a disposable Android work profile (Pro):
+                            disabled (default), per-job or per-flow
+  --env <KEY=VALUE>         pass an environment variable to the flows
+The run
+  --name <name>             a name for the run
+  --async                   print the job id and exit
+  --dry-run                 show what would run without submitting
+  --quiet, -q               print no progress
+  --debug                   print debug output
+Results
+  --json                    print the result as JSON
+  --json-file               write the result to a JSON file
+  --json-file-name <name>   file name for --json-file
+  --report junit            write a JUnit report
+  --junit-path <path>       where to write the JUnit report
+  --download-artifacts <ALL|FAILED>  download artifacts after the run
+  --artifacts-path <path>   where to put downloaded artifacts
+  --help, -h                show this help
+
+Isolation cost: per-job costs about 15-40 s and about 1.5 GB of device writes per job, and per-flow costs that for every flow (a 27-flow suite writes about 40 GB). Details: https://github.com/nmehlei/DeviceYard/blob/main/docs/guide/isolation.md`;
+
+/** Flags that consume the next argument, so "--name --help" is a name, not a help request. */
+const VALUE_FLAGS = new Set([
+  "--api-key", "--url", "--org", "--app-file", "--flows", "--exclude-flows", "--device-tags",
+  "--isolation", "--include-tags", "--exclude-tags", "--env", "--name", "--json-file-name",
+  "--report", "--junit-path", "--download-artifacts", "--artifacts-path",
+]);
+
+function wantsHelp(args: string[]): boolean {
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--help" || args[i] === "-h") return true;
+    if (VALUE_FLAGS.has(args[i])) i++;
+  }
+  return false;
+}
 
 export async function run(argv: string[], io: Io): Promise<number> {
   try {
@@ -61,6 +110,11 @@ export async function run(argv: string[], io: Io): Promise<number> {
       throw new CliError(
         `unknown command "${command}"${near ? ` - did you mean "${near}"?` : ""}\n\n${USAGE}`,
       );
+    }
+
+    if (command === "cloud" && wantsHelp(rest)) {
+      io.out(CLOUD_HELP);
+      return EXIT_OK;
     }
 
     if (command === "cloud") {

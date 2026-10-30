@@ -4,6 +4,8 @@ const reasons: Record<string, string> = {
   MATCHING_DEVICES_UNAVAILABLE: 'Matching devices are offline or unavailable. The job will resume when one recovers.',
   MATCHING_DEVICES_BUSY: 'Waiting for a matching device to become free.',
   CHECKING_MATCHING_DEVICES: 'Checking matching device availability.',
+  PRO_ISOLATION_REQUIRED: 'Waiting for an active Pro license to run with work-profile isolation.',
+  NO_ISOLATION_CAPABLE_DEVICE: 'Waiting for a device that supports work-profile isolation.',
   MAINTENANCE: 'Waiting for maintenance to end.',
   CONCURRENCY_LIMIT: 'Waiting for a running job to finish or the concurrency limit to increase.',
 };

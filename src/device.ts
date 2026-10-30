@@ -70,7 +70,9 @@ export async function prepareDevice(
   // Defaults to the weakest policy on purpose: a caller that has not been
   // taught about reset policies must never start deleting a device owner's
   // browsing data because it forgot an argument.
-  resetPolicy: ResetPolicy = "app-only"
+  resetPolicy: ResetPolicy = "app-only",
+  // Isolated jobs run in a disposable work profile, so the primary user's app data is not theirs to clear.
+  isolated = false
 ): Promise<PrepareResult> {
   const adb = (...args: string[]) => runner("adb", ["-s", deviceId, ...args]);
   const warnings: string[] = [];
@@ -113,6 +115,9 @@ export async function prepareDevice(
     // Wake and unlock — a slept or locked screen fails every tap silently.
     { what: "wake screen", args: ["shell", "input", "keyevent", "KEYCODE_WAKEUP"] },
     { what: "dismiss keyguard", args: ["shell", "wm", "dismiss-keyguard"] },
+    // An earlier job's flow can leave the phone in airplane mode, which
+    // silently kills every network call of the next one.
+    { what: "disable airplane mode", args: ["shell", "cmd", "connectivity", "airplane-mode", "disable"] },
     // Dismiss whatever system dialog is on top (Samsung policy nags and similar).
     { what: "dismiss dialogs (back)", args: ["shell", "input", "keyevent", "KEYCODE_BACK"] },
     { what: "dismiss dialogs (back)", args: ["shell", "input", "keyevent", "KEYCODE_BACK"] },
@@ -126,7 +131,7 @@ export async function prepareDevice(
       what: `force-stop ${pkg}`,
       args: ["shell", "am", "force-stop", pkg],
     })),
-    { what: "clear app data", args: ["shell", "pm", "clear", appId] },
+    ...(isolated ? [] : [{ what: "clear app data", args: ["shell", "pm", "clear", appId] }]),
   ];
 
   for (const step of steps) {

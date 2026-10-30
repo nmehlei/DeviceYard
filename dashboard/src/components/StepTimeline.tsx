@@ -68,6 +68,7 @@ function StepCard({ step, index }: { step: StepWithArtifacts; index: number }) {
             {step.kind === "flow" && <span className="job-step-number">{String(index + 1).padStart(2, "0")}</span>}
             <span className="job-step-name">{stepTitle(step)}<small>{step.kind === "flow" ? "Flow" : "Preparation"}</small></span>
           <StatusBadge status={step.status} />
+          {step.profileMs != null && <span className="job-step-duration">Work profile: {(step.profileMs / 1000).toFixed(1)} s</span>}
           <span className="job-step-duration">{step.status === "running" ? "In progress" : durationLabel(step.startedAt, step.finishedAt)}</span>
         </summary>
 

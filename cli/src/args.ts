@@ -1,6 +1,7 @@
 import { CliError } from "./exit";
 import { nearest } from "./distance";
 import { parseDeviceTags } from '../../shared/deviceTags';
+import { parseIsolation, type IsolationMode } from '../../shared/isolation';
 
 export interface CloudOptions {
   appFile?: string;
@@ -11,6 +12,7 @@ export interface CloudOptions {
   org?: number;
   envPairs: string[];
   requiredDeviceTags: string[];
+  isolation: IsolationMode;
   includeTags: string[];
   excludeTags: string[];
   excludeFlows: string[];
@@ -66,7 +68,7 @@ export const UNSUPPORTED: Readonly<Record<string, string>> = Object.freeze({
 
 export const KNOWN_OPTIONS = [
   "--api-key", "--url", "--org", "--app-file", "--flows", "--exclude-flows",
-  "--device-tags",
+  "--device-tags", "--isolation",
   "--include-tags", "--exclude-tags", "--env", "--name", "--async", "--quiet",
   "--json", "--json-file", "--json-file-name", "--dry-run", "--report",
   "--junit-path", "--download-artifacts", "--artifacts-path", "--debug", "--help",
@@ -87,6 +89,7 @@ export function parseCloud(argv: string[]): CloudOptions {
     flowsPath: "",
     envPairs: [],
     requiredDeviceTags: [],
+    isolation: "disabled",
     includeTags: [],
     excludeTags: [],
     excludeFlows: [],
@@ -140,6 +143,14 @@ export function parseCloud(argv: string[]): CloudOptions {
       case "--exclude-tags": o.excludeTags.push(...list(next())); break;
       case "--env": o.envPairs.push(next()); break;
       case "--device-tags": o.requiredDeviceTags.push(...next().split(',').map(tag => tag.trim())); break;
+      case "--isolation": {
+        try { o.isolation = parseIsolation(next()); }
+        catch (error) {
+          if (error instanceof CliError) throw error;
+          throw new CliError(error instanceof Error ? error.message : "Invalid isolation");
+        }
+        break;
+      }
       case "--name": o.name = next(); break;
       case "--async": o.async = true; break;
       case "--quiet": case "-q": o.quiet = true; break;

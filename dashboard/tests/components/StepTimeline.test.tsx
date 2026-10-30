@@ -145,3 +145,13 @@ test("live updates do not reopen a flow the visitor collapsed", () => {
   rerender(<StepTimeline steps={[{ ...baseStep, status: "failed" }]} />);
   expect(details.open).toBe(false);
 });
+
+test("a step with profileMs shows the work profile time", () => {
+  render(<StepTimeline steps={[{ ...baseStep, profileMs: 18400 }]} />);
+  expect(screen.getByText("Work profile: 18.4 s")).toBeInTheDocument();
+});
+
+test("a step without profileMs shows no work profile time", () => {
+  render(<StepTimeline steps={[{ ...baseStep, profileMs: null }, { ...baseStep, id: 2, ordinal: 1 }]} />);
+  expect(screen.queryByText(/Work profile/)).not.toBeInTheDocument();
+});

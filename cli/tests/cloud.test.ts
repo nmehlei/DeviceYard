@@ -40,7 +40,11 @@ function deps(frames: unknown[], postResult: unknown = { id: "job-1", status: "q
   // reached a live farm with a full green suite behind it.
   const asked: string[] = [];
   const client: FarmClient = {
-    async getJson(p) { asked.push(p); return frames[frames.length - 1] as never; },
+    async getJson(p) {
+      asked.push(p);
+      if (p === "/openapi.json") return { paths: { "/run": { post: { requestBody: { content: { "multipart/form-data": { schema: { properties: { isolation: {} } } } } } } } } } as never;
+      return frames[frames.length - 1] as never;
+    },
     async getBinary(p) { asked.push(p); throw new Error("not used"); },
     async postForm(p) { asked.push(p); return postResult as never; },
     async openEvents(p, onFrame) { asked.push(p); for (const f of frames) onFrame(f); },
@@ -59,6 +63,71 @@ describe("runCloud", () => {
     expect(posted?.get('requiredDeviceTags')).toBe('["tablet","camera"]');
     expect(() => parseCloud([apk,scenarios,'--device-tags','Tablet'])).toThrow();
     expect(() => parseCloud([apk,scenarios,'--device-tags','tablet,'])).toThrow();
+  });
+  it('posts isolation=per-flow, and rejects --isolation Per-Job', async () => {
+    const d = deps([]);
+    let posted: FormData | undefined;
+    d.client.postForm = async (_url, form) => { posted = form; return { id: 'job-1', status: 'queued' }; };
+    expect(await runCloud(parseCloud([apk, scenarios, '--isolation', 'per-flow', '--async']), conn, d)).toBe(EXIT_OK);
+    expect(posted?.get('isolation')).toBe('per-flow');
+    expect(() => parseCloud([apk, scenarios, '--isolation', 'Per-Job'])).toThrow('isolation must be one of disabled, per-job, per-flow');
+  });
+  const openapi = (withIsolation: boolean) => ({
+    paths: { '/run': { post: { requestBody: { content: { 'multipart/form-data': { schema: {
+      type: 'object', properties: { apk: {}, ...(withIsolation ? { isolation: { type: 'string' } } : {}) },
+    } } } } } } },
+  });
+  it('proceeds when the farm advertises the isolation field', async () => {
+    const d = deps([]);
+    const gets: string[] = [];
+    d.client.getJson = async (p) => { gets.push(p); return openapi(true) as never; };
+    let posted = false;
+    d.client.postForm = async () => { posted = true; return { id: 'job-1', status: 'queued' }; };
+    expect(await runCloud(parseCloud([apk, scenarios, '--isolation', 'per-job', '--async']), conn, d)).toBe(EXIT_OK);
+    expect(gets).toEqual(['/openapi.json']);
+    expect(posted).toBe(true);
+  });
+  it('fails before any upload when the farm does not support isolation', async () => {
+    for (const doc of [openapi(false), null]) {
+      const d = deps([]);
+      d.client.getJson = async () => { if (doc === null) throw new Error('boom'); return doc as never; };
+      let posted = false;
+      d.client.postForm = async () => { posted = true; return { id: 'job-1', status: 'queued' }; };
+      expect(await runCloud(parseCloud([apk, scenarios, '--isolation', 'per-flow', '--async']), conn, d)).toBe(EXIT_ERROR);
+      expect(d.err.join('\n')).toContain('this farm does not support --isolation; upgrade DeviceYard on the farm');
+      expect(posted).toBe(false);
+    }
+  });
+  it('does not fetch the farm document when isolation is disabled', async () => {
+    const d = deps([]);
+    let fetched = false;
+    d.client.getJson = async () => { fetched = true; return {} as never; };
+    d.client.postForm = async () => ({ id: 'job-1', status: 'queued' });
+    expect(await runCloud(parseCloud([apk, scenarios, '--async']), conn, d)).toBe(EXIT_OK);
+    expect(fetched).toBe(false);
+  });
+  it('sends no isolation field when isolation is disabled', async () => {
+    const d = deps([]);
+    const posts: FormData[] = [];
+    d.client.postForm = async (_url, form) => { posts.push(form); return { id: 'job-1', status: 'queued' }; };
+    expect(await runCloud(parseCloud([apk, scenarios, '--async']), conn, d)).toBe(EXIT_OK);
+    expect(await runCloud(parseCloud([apk, scenarios, '--isolation', 'disabled', '--async']), conn, d)).toBe(EXIT_OK);
+    expect(posts.map((f) => f.has('isolation'))).toEqual([false, false]);
+  });
+  it('prints the submit warning to stderr, unless --quiet', async () => {
+    const warned = { id: 'job-1', status: 'queued', warnings: ['per-flow isolation writes about 1.5 GB per flow'] };
+    const d = deps([], warned);
+    expect(await runCloud(parseCloud([apk, scenarios, '--isolation', 'per-flow', '--async']), conn, d)).toBe(EXIT_OK);
+    expect(d.err.join('\n')).toContain('per-flow isolation writes about 1.5 GB per flow');
+    expect(d.out).toEqual(['job-1']);
+    const q = deps([], warned);
+    expect(await runCloud(parseCloud([apk, scenarios, '--isolation', 'per-flow', '--async', '--quiet']), conn, q)).toBe(EXIT_OK);
+    expect(q.err).toEqual([]);
+  });
+  it('mentions isolation in a dry run', async () => {
+    const d = deps([]);
+    expect(await runCloud(parseCloud([apk, scenarios, '--isolation', 'per-job', '--dry-run']), conn, d)).toBe(EXIT_OK);
+    expect(d.out.join('\n')).toContain('would run with isolation: per-job');
   });
   it("exits 0 when every flow passes", async () => {
     const d = deps([frame("done", [{ name: "login", status: "passed" }, { name: "map/filter", status: "passed" }])]);

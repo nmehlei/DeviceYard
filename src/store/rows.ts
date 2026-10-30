@@ -8,7 +8,10 @@ export type StepKind = "setup" | "flow";
 // defeat a primary purpose of collecting artifacts at all.
 export type ArtifactKind = "screenshot" | "recording" | "hierarchy" | "stdout" | "stderr" | "log";
 
+import type { IsolationMode } from "../../shared/isolation";
+
 export interface JobRow {
+  isolation: IsolationMode;
   requiredDeviceTags: string[];
   id: string;
   org: string;
@@ -48,6 +51,8 @@ export interface StepRow {
   warnings: string[];
   stdoutPreview: string | null;
   stderrPreview: string | null;
+  /** Milliseconds to create and start the work profile for this step. Null when not isolated. */
+  profileMs: number | null;
 }
 
 export interface ArtifactRow {
@@ -130,6 +135,8 @@ export function isResetPolicy(value: unknown): value is ResetPolicy {
 }
 
 export interface DeviceRow {
+  /** Null until a probe has recorded whether the device can run work profiles. */
+  isolationCapable: boolean | null;
   tags: string[];
   id: string;
   label: string;

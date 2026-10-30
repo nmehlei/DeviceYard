@@ -180,6 +180,9 @@ test("a database already at version 6 migrates forward to upload_settings", () =
   db.exec("ALTER TABLE jobs DROP COLUMN app_version");
   db.exec("ALTER TABLE devices DROP COLUMN tags_json");
   db.exec("ALTER TABLE jobs DROP COLUMN required_device_tags_json");
+  db.exec("ALTER TABLE jobs DROP COLUMN isolation");
+  db.exec("ALTER TABLE flow_runs DROP COLUMN profile_ms");
+  db.exec("ALTER TABLE devices DROP COLUMN isolation_capable");
   db.exec("PRAGMA user_version = 6");
 
   expect(migrate(db)).toBe(SCHEMA_VERSION);
@@ -221,14 +224,17 @@ test("migration 10 adds reset_policy defaulting to app-only", () => {
   expect(inserted?.reset_policy).toBe("app-only");
 });
 
-test("SCHEMA_VERSION is 14", () => {
-  expect(SCHEMA_VERSION).toBe(14);
+test("SCHEMA_VERSION is 15", () => {
+  expect(SCHEMA_VERSION).toBe(15);
 });
 
 test('migration 14 preserves populated version 13 jobs as unconstrained', () => {
   migrate(db);
   db.exec("ALTER TABLE devices DROP COLUMN tags_json");
   db.exec("ALTER TABLE jobs DROP COLUMN required_device_tags_json");
+  db.exec("ALTER TABLE jobs DROP COLUMN isolation");
+  db.exec("ALTER TABLE flow_runs DROP COLUMN profile_ms");
+  db.exec("ALTER TABLE devices DROP COLUMN isolation_capable");
   db.exec("PRAGMA user_version = 13");
   db.run("INSERT INTO devices (id,label,is_active,added_at) VALUES ('phone','Phone',1,1)");
   db.run("INSERT INTO jobs (id,org,status,created_at) VALUES ('queued','org','queued',1)");
