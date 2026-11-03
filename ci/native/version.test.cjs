@@ -11,7 +11,8 @@ test('ordinary builds use the edition GitVersion result', () => {
 test('stable packaging uses the edition version on automatic and manual main builds', () => {
   for (const reason of ['IndividualCI', 'BatchedCI', 'Manual'])
     assert.equal(nativeVersion({mode:'stable', version:'1.2.3', buildId:'7', reason, branch:'refs/heads/main'}), '1.2.3');
-  assert.throws(() => nativeVersion({mode:'stable', version:'1.2.3', buildId:'7', reason:'PullRequest', branch:'refs/heads/main'}));
+  for (const reason of ['PullRequest', 'Schedule', 'ResourceTrigger'])
+    assert.throws(() => nativeVersion({mode:'stable', version:'1.2.3', buildId:'7', reason, branch:'refs/heads/main'}));
   assert.throws(() => nativeVersion({mode:'stable', version:'1.2.3', buildId:'7', reason:'IndividualCI', branch:'refs/heads/feature'}));
 });
 test('rejects invalid version, mode and pipeline command injection', () => {

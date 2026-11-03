@@ -27,6 +27,9 @@ if (require.main === module) {
     const version = nativeVersion({mode:process.env.NATIVE_RELEASE_MODE, version:baseVersion,
       buildId:process.env.BUILD_BUILDID, reason:process.env.BUILD_REASON, branch:process.env.BUILD_SOURCEBRANCH});
     console.log(`##vso[task.setvariable variable=nativeVersion]${version}`);
+    if (process.env.NATIVE_REQUESTED_MODE && process.env.NATIVE_REQUESTED_MODE !== process.env.NATIVE_RELEASE_MODE) {
+      console.log(`Requested packaging mode ${process.env.NATIVE_REQUESTED_MODE} overridden to ${process.env.NATIVE_RELEASE_MODE} for this main build`);
+    }
     console.log(`##vso[task.setvariable variable=releaseMode]${process.env.NATIVE_RELEASE_MODE}`);
     console.log(`Community native version: ${version}; promotion remains separate`);
   } catch {
