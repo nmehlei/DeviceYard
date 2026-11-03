@@ -35,7 +35,11 @@ steps:
   - script: node ci/native/version.cjs
     displayName: Select Community native archive version
     env:
-      NATIVE_RELEASE_MODE: ${{ parameters.nativeReleaseMode }}
+      # Every merge to main packages the stable edition version; other builds follow the parameter.
+      ${{ if and(eq(variables['Build.SourceBranch'], 'refs/heads/main'), ne(variables['Build.Reason'], 'PullRequest')) }}:
+        NATIVE_RELEASE_MODE: stable
+      ${{ else }}:
+        NATIVE_RELEASE_MODE: ${{ parameters.nativeReleaseMode }}
   - script: npm ci
     displayName: Install server and CLI dependencies
   - script: npm --prefix dashboard ci
