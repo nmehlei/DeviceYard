@@ -33,6 +33,12 @@ test('rejects docs/superpowers, .superpowers, tests and ci directories', () => {
   assert.doesNotThrow(() => assertPublishable(runtime({'node_modules/pkg/tests/a.js': '', 'node_modules/pkg/ci/b.js': '', 'node_modules/pkg/src/c.js': ''}), 'community'));
 });
 
+test('exempts node_modules at any depth', () => {
+  assert.doesNotThrow(() => assertPublishable(runtime({'dist/core/node_modules/pkg/index.ts': '', 'dist/core/node_modules/pkg/tests/a.js': ''}), 'community'));
+  // Only a real node_modules path segment is exempt.
+  assert.throws(() => assertPublishable(runtime({'dist/not_node_modules/x.ts': ''}), 'community'), /forbidden path/);
+});
+
 test('requires PRO-LICENSE for pro only', () => {
   assert.throws(() => assertPublishable(runtime(), 'pro'), /PRO-LICENSE/);
   assert.doesNotThrow(() => assertPublishable(runtime({'PRO-LICENSE': 'x'}), 'pro'));

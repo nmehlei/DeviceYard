@@ -9,8 +9,9 @@ const REQUIRED = ['release.json', 'dist/index.js', 'notices/LICENSE'];
 
 function offending(rel, isDir) {
   const parts = rel.split(path.sep);
-  // Third-party content below node_modules is exempt (it ships .ts sources and .d.ts legitimately).
-  if (parts[0] === 'node_modules') return false;
+  // Third-party content below any node_modules (e.g. dist/core/node_modules in Pro) is exempt:
+  // it ships .ts sources, .d.ts and tests/ directories legitimately.
+  if (parts.includes('node_modules')) return false;
   if (isDir && parts.length === 1 && parts[0] === 'src') return true; // Pro's src/ (dist/core/src is fine)
   if (isDir && FORBIDDEN_DIRS.has(parts[parts.length - 1])) return true;
   if (isDir && parts.length >= 2 && parts[parts.length - 2] === 'docs' && parts[parts.length - 1] === 'superpowers') return true;
