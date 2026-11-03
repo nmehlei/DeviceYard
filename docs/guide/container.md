@@ -6,8 +6,18 @@ active device per installation. This guide does not change Pro licensing.
 
 The initial target is **Linux amd64 with USB-connected Android phones**.
 Docker Desktop can validate startup but is not a substitute for Linux USB
-testing. Images are not yet published; build locally from this checkout.
-Hardware acceptance and final attribution review remain release conditions.
+testing. Every release is published as a Linux amd64 image:
+
+```sh
+docker pull ghcr.io/nmehlei/deviceyard:<version>
+```
+
+Tags per release are `<version>`, `<major>.<minor>`, `<major>` and `latest`;
+pin an exact version (or digest) for production. The same release, with the
+native archive and `SHA256SUMS`, is listed on
+[GitHub releases](https://github.com/nmehlei/DeviceYard/releases). Building
+locally from this checkout remains an alternative (see below). Hardware
+acceptance and final attribution review remain release conditions.
 
 ## Prepare the host
 
@@ -81,13 +91,16 @@ backup. Recreate the container with a tested image, retaining the same Compose
 project name and volumes. For rollback, retain the prior image and compatible
 backup; do not assume an older binary supports a newer database schema.
 
-Once published, `DEVICEYARD_IMAGE` will accept an approved version or digest
-from `ghcr.io/nmehlei/deviceyard`; use `up --no-build` for a prebuilt image.
-Until then, the default local image name is intentional. Use only one runner
+To run a published image, set `DEVICEYARD_IMAGE` to an exact version or
+digest from `ghcr.io/nmehlei/deviceyard` (for example
+`ghcr.io/nmehlei/deviceyard:<version>`) and use `up --no-build`. Without it,
+Compose builds the local image from this checkout. Use only one runner
 container per data volume. Container builds do not alter the existing systemd
 farm deployment or updater.
 
 ## Validation and notices
+
+As an alternative to a published image, build and verify locally:
 
 ```sh
 docker build --platform linux/amd64 -f ci/container/Dockerfile -t deviceyard-community:test .

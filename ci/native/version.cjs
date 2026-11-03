@@ -27,10 +27,13 @@ if (require.main === module) {
     const version = nativeVersion({mode:process.env.NATIVE_RELEASE_MODE, version:baseVersion,
       buildId:process.env.BUILD_BUILDID, reason:process.env.BUILD_REASON, branch:process.env.BUILD_SOURCEBRANCH});
     console.log(`##vso[task.setvariable variable=nativeVersion]${version}`);
+    // Output copies let the Publish stage read the values (stageDependencies); plain ones serve this job.
+    console.log(`##vso[task.setvariable variable=nativeVersion;isOutput=true]${version}`);
     if (process.env.NATIVE_REQUESTED_MODE && process.env.NATIVE_REQUESTED_MODE !== process.env.NATIVE_RELEASE_MODE) {
       console.log(`Requested packaging mode ${process.env.NATIVE_REQUESTED_MODE} overridden to ${process.env.NATIVE_RELEASE_MODE} for this main build`);
     }
     console.log(`##vso[task.setvariable variable=releaseMode]${process.env.NATIVE_RELEASE_MODE}`);
+    console.log(`##vso[task.setvariable variable=releaseMode;isOutput=true]${process.env.NATIVE_RELEASE_MODE}`);
     console.log(`Community native version: ${version}; promotion remains separate`);
   } catch {
     console.error('Native version rejected; verify full Community history, restored GitVersion 5.12.0 and packaging mode');
