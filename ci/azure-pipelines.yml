@@ -136,7 +136,9 @@ stages:
               release="$(node ci/release/publish.cjs release-state nmehlei/DeviceYard "$NATIVE_VERSION")"
               # Only a definite "not found" counts as missing; any other registry error stops the run.
               if inspect="$(docker buildx imagetools inspect "$IMAGE:$NATIVE_VERSION" 2>&1)"; then image=present
-              elif printf '%s' "$inspect" | grep -Eqi 'not found|manifest unknown|NAME_UNKNOWN'; then image=missing
+              # GHCR answers denied/unauthorized for a package that was never pushed (first release); a real
+              # auth problem then still fails at the push, so this cannot cause a wrong overwrite.
+              elif printf '%s' "$inspect" | grep -Eqi 'not found|manifest unknown|NAME_UNKNOWN|denied|unauthorized'; then image=missing
               else echo "Could not determine whether $IMAGE:$NATIVE_VERSION exists; registry output withheld" >&2; exit 1
               fi
               echo "Release v$NATIVE_VERSION: $release; image $IMAGE:$NATIVE_VERSION: $image"
@@ -205,17 +207,24 @@ stages:
               RELEASE_DIR: $(releaseDir)
           - script: |
               set -euo pipefail
-              # Tags pushed since checkout (another run) must also hold back the floating tags.
-              git fetch --quiet --tags --force origin \
-                || echo "##vso[task.logissue type=warning]Could not refresh tags; using the tags fetched at checkout"
+              # Tags pushed since checkout (another run) must also hold back the floating tags; a stale
+              # tag list could move latest backwards, so a failed refresh fails the step.
+              git fetch --quiet --tags --force origin
               mapfile -t existing < <(git tag --list 'v*')
               node ci/release/publish.cjs tags "$IMAGE" "$NATIVE_VERSION" "${existing[@]}" > "$RELEASE_DIR/image-tags.txt"
+              mapfile -t tags < "$RELEASE_DIR/image-tags.txt"
+              if [ "${tags[0]:-}" != "$IMAGE:$NATIVE_VERSION" ]; then
+                echo "Unexpected image tag list" >&2
+                exit 1
+              fi
               built="$(< "$RELEASE_DIR/image-id.txt")"
-              while read -r tag; do
+              # Floating tags first, the version tag last: the guard treats a missing <v> as "not pushed",
+              # so an interrupted push is redone completely by a re-run.
+              for tag in "${tags[@]:1}" "${tags[0]}"; do
                 # Every pushed tag points at the smoke-tested image.
                 docker tag "$built" "$tag"
                 docker push --quiet "$tag"
-              done < "$RELEASE_DIR/image-tags.txt"
+              done
             displayName: Push release image tags to GHCR
             condition: and(succeeded(), ne(variables.skipPublish, 'true'), ne(variables.skipImage, 'true'))
             env:
