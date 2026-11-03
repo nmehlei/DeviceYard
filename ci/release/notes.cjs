@@ -50,21 +50,21 @@ function checkPullRequest(root, base, head) {
   if (!valid) throw new Error(MISSING);
 }
 
-// Fragments are read as first added (later edits are ignored) and only if still present at head.
+// Fragments added since the previous tag are collected if still present at head, with their
+// text as of head: edits inside the same PR (or later, before the release) count.
 function notesSince(root, previousTag, head = 'HEAD') {
   const range = previousTag ? [`${previousTag}..${head}`] : [head];
   const log = git(root, ['log', '-z', '--reverse', '--no-merges', '--no-renames', '--diff-filter=A', '--name-only', '--format=%x01%H%x02', ...range, '--', 'release-notes/']);
   const present = new Set(git(root, ['ls-tree', '-r', '-z', '--name-only', head, '--', 'release-notes/']).split('\0'));
   const seen = new Set();
   const bullets = [];
-  let commit = null;
   for (let token of log.split('\0')) {
-    const m = /\x01([0-9a-f]+)\x02/.exec(token);
-    if (m) { commit = m[1]; token = token.slice(m.index + m[0].length); }
+    const m = /\x01[0-9a-f]+\x02/.exec(token);
+    if (m) token = token.slice(m.index + m[0].length);
     token = token.replace(/^\n+/, '');
     if (!token || !isFragmentPath(token) || seen.has(token) || !present.has(token)) continue;
     seen.add(token);
-    const text = showAt(root, commit, token);
+    const text = showAt(root, head, token);
     const lines = text === null ? null : parseFragment(text);
     if (lines) bullets.push(...lines.map((entry) => `- ${neutralize(entry)}`));
   }

@@ -139,16 +139,38 @@ test('a fragment added after the tag and deleted before release is not published
   }
 });
 
-test('edits after merge are ignored', () => {
+test('the text as of the release commit counts, including edits after merge', () => {
   for (const tag of ['v1.0.0', null]) {
     const r = makeRepo();
     try {
       if (tag) r.git('tag', tag);
       r.merge('one', 'a', 'Original.\n');
       r.write('release-notes/a.md', 'Edited later.\n'); r.commit('Edit');
-      assert.equal(notesSince(r.root, tag), '- Original.\n');
+      assert.equal(notesSince(r.root, tag), '- Edited later.\n');
     } finally { r.cleanup(); }
   }
+});
+
+test('uses the final text of a fragment edited within the same PR', () => {
+  const r = makeRepo();
+  try {
+    r.git('tag', 'v1.0.0');
+    r.git('switch', '-c', 'feature');
+    r.write('release-notes/x.md', 'TODO\n'); r.commit('Draft note');
+    r.write('release-notes/x.md', 'Real note\n'); r.commit('Final note');
+    r.git('switch', 'main'); r.git('merge', '--no-ff', 'feature', '-m', 'Merge feature');
+    assert.equal(notesSince(r.root, 'v1.0.0'), '- Real note\n');
+  } finally { r.cleanup(); }
+});
+
+test('a fragment edited after the previous release is not collected again', () => {
+  const r = makeRepo();
+  try {
+    r.merge('one', 'a', 'Original.\n');
+    r.git('tag', 'v1.0.0');
+    r.write('release-notes/a.md', 'Edited later.\n'); r.commit('Edit');
+    assert.equal(notesSince(r.root, 'v1.0.0'), 'Maintenance release without user-facing changes.\n');
+  } finally { r.cleanup(); }
 });
 
 test('fast-forward and squash merges are collected', () => {
