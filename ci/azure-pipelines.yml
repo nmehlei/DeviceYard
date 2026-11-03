@@ -117,16 +117,22 @@ stages:
               versionSpec: '22.x'
           - script: |
               set -euo pipefail
-              if [ -z "${GITHUB_PUBLISH_TOKEN:-}" ] || [[ "$GITHUB_PUBLISH_TOKEN" == '$('* ]]; then
-                echo "deviceyard-publishing variable group or secret missing" >&2
-                exit 1
-              fi
+              # An undefined secret reaches env: as the literal "$(NAME)"; report the name, never a value.
+              for secret in GITHUB_PUBLISH_TOKEN GHCR_PUSH_TOKEN; do
+                if [ -z "${!secret:-}" ] || [[ "${!secret}" == '$('* ]]; then
+                  echo "deviceyard-publishing variable group or secret missing: $secret" >&2
+                  exit 1
+                fi
+              done
               if [ "$RELEASE_MODE" != stable ] || ! printf '%s' "$NATIVE_VERSION" | grep -Eqx '(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)'; then
                 echo "Publish requires a stable version from the Build stage" >&2
                 exit 1
               fi
-              # GHCR username: the owner of the fine-grained publishing token (nmehlei).
-              printf '%s' "$GITHUB_PUBLISH_TOKEN" | docker login ghcr.io --username nmehlei --password-stdin
+              # Fine-grained tokens cannot push to GHCR: GHCR_PUSH_TOKEN (classic, write:packages only, owned
+              # by nmehlei, the GHCR username) is used only for this login; the job's later image steps reuse it.
+              printf '%s' "$GHCR_PUSH_TOKEN" | docker login ghcr.io --username nmehlei --password-stdin
+              unset GHCR_PUSH_TOKEN
+              # GITHUB_PUBLISH_TOKEN (fine-grained: contents rw, pull requests read) is used only by publish.cjs.
               release="$(node ci/release/publish.cjs release-state nmehlei/DeviceYard "$NATIVE_VERSION")"
               # Only a definite "not found" counts as missing; any other registry error stops the run.
               if inspect="$(docker buildx imagetools inspect "$IMAGE:$NATIVE_VERSION" 2>&1)"; then image=present
@@ -147,9 +153,10 @@ stages:
               fi
               echo "##vso[task.setvariable variable=skipPublish]$skipPublish"
               echo "##vso[task.setvariable variable=skipImage]$skipImage"
-            displayName: Check publishing secret and existing release
+            displayName: Check publishing secrets and existing release
             env:
               GITHUB_PUBLISH_TOKEN: $(GITHUB_PUBLISH_TOKEN)
+              GHCR_PUSH_TOKEN: $(GHCR_PUSH_TOKEN)
               NATIVE_VERSION: $(nativeVersion)
               RELEASE_MODE: $(releaseMode)
               IMAGE: $(communityImage)
