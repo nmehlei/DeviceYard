@@ -20,14 +20,14 @@ test('accepts a minimal community runtime', () => {
 });
 
 test('rejects a TypeScript source outside node_modules but allows node_modules d.ts', () => {
-  assert.doesNotThrow(() => assertPublishable(runtime({'node_modules/pkg/index.d.ts': ''}), 'community'));
+  assert.doesNotThrow(() => assertPublishable(runtime({'node_modules/pkg/index.d.ts': '', 'node_modules/pkg/index.ts': ''}), 'community'));
+  assert.throws(() => assertPublishable(runtime({'dist/x.d.ts': ''}), 'community'), /x\.d\.ts/);
   assert.throws(() => assertPublishable(runtime({'dist/src/server.ts': ''}), 'community'), /dist[\\/]src[\\/]server\.ts/);
-  assert.throws(() => assertPublishable(runtime({'node_modules/pkg/index.ts': ''}), 'community'), /index\.ts/);
 });
 
 test('rejects docs/superpowers, .superpowers, tests and ci directories', () => {
-  for (const file of ['docs/superpowers/spec.md', '.superpowers/x', 'tests/a.js', 'ci/build.cjs', 'src/a.js']) {
-    assert.throws(() => assertPublishable(runtime({[file]: ''}), 'community'), new RegExp(file.split('/')[0].replace('.', '\\.')), file);
+  for (const file of ['docs/superpowers/spec.md', '.superpowers/x', 'tests/a.js', 'ci/build.cjs', 'src/a.js', 'dist/tests/x.js', 'dist/.superpowers/x', 'dist/docs/superpowers/x.md']) {
+    assert.throws(() => assertPublishable(runtime({[file]: ''}), 'community'), /forbidden path/, file);
   }
   // A nested tests directory inside node_modules is third-party content and stays allowed.
   assert.doesNotThrow(() => assertPublishable(runtime({'node_modules/pkg/tests/a.js': '', 'node_modules/pkg/ci/b.js': '', 'node_modules/pkg/src/c.js': ''}), 'community'));

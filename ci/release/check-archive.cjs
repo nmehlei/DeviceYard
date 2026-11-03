@@ -3,17 +3,18 @@ const os = require('node:os');
 const path = require('node:path');
 const {execFileSync} = require('node:child_process');
 
-// Top-level directories that must never ship in a public archive.
-const FORBIDDEN_TOP = new Set(['tests', 'ci', 'src', '.superpowers']);
+// Directory names that must never ship in a public archive, at any depth outside node_modules.
+const FORBIDDEN_DIRS = new Set(['tests', 'ci', '.superpowers']);
 const REQUIRED = ['release.json', 'dist/index.js', 'notices/LICENSE'];
 
 function offending(rel, isDir) {
   const parts = rel.split(path.sep);
-  // Third-party content below node_modules is exempt, except stray .ts sources (only .d.ts allowed).
-  const nm = parts[0] === 'node_modules';
-  if (!nm && FORBIDDEN_TOP.has(parts[0])) return true;
-  if (!nm && parts[0] === 'docs' && parts[1] === 'superpowers') return true;
-  if (!isDir && /\.(ts|tsx|mts|cts)$/.test(rel) && !/\.d\.(ts|mts|cts)$/.test(rel)) return true;
+  // Third-party content below node_modules is exempt (it ships .ts sources and .d.ts legitimately).
+  if (parts[0] === 'node_modules') return false;
+  if (isDir && parts.length === 1 && parts[0] === 'src') return true; // Pro's src/ (dist/core/src is fine)
+  if (isDir && FORBIDDEN_DIRS.has(parts[parts.length - 1])) return true;
+  if (isDir && parts.length >= 2 && parts[parts.length - 2] === 'docs' && parts[parts.length - 1] === 'superpowers') return true;
+  if (!isDir && /\.(ts|tsx|mts|cts)$/.test(rel)) return true;
   return false;
 }
 

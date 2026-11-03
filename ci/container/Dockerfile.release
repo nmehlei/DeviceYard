@@ -59,8 +59,10 @@ LABEL org.opencontainers.image.title="DeviceYard Pro" \
       org.opencontainers.image.licenses="LicenseRef-DeviceYard-Pro"
 
 FROM edition-${EDITION} AS runtime
+ARG EDITION
 USER 1000:1000
 RUN node --version && java -version && adb version && maestro --version \
+    && if [ "$EDITION" = pro ]; then /opt/maestro-android-user/bin/maestro --version; fi \
     && rm -rf /home/deviceyard/.maestro
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
