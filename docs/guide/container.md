@@ -1,4 +1,4 @@
-# Community container (release candidate)
+# Community container
 
 The container packages the Community server, dashboard, CLI/MCP assets,
 Maestro 2.6.1, Java, Android platform tools and scrcpy. Community runs one
@@ -6,7 +6,8 @@ active device per installation. This guide does not change Pro licensing.
 
 The initial target is **Linux amd64 with USB-connected Android phones**.
 Docker Desktop can validate startup but is not a substitute for Linux USB
-testing. Every release is published as a Linux amd64 image:
+testing. Every release is published as an image for **linux/amd64 only** (no
+arm64 variant):
 
 ```sh
 docker pull ghcr.io/nmehlei/deviceyard:<version>
@@ -16,8 +17,7 @@ Tags per release are `<version>`, `<major>.<minor>`, `<major>` and `latest`;
 pin an exact version (or digest) for production. The same release, with the
 native archive and `SHA256SUMS`, is listed on
 [GitHub releases](https://github.com/nmehlei/DeviceYard/releases). Building
-locally from this checkout remains an alternative (see below). Hardware
-acceptance and final attribution review remain release conditions.
+locally from this checkout remains an alternative (see below).
 
 ## Prepare the host
 
