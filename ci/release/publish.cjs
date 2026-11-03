@@ -18,6 +18,24 @@ function imageTags(image, version) {
   return [version, `${major}.${minor}`, major, 'latest'].map(tag => `${image}:${tag}`);
 }
 
+const parts = version => version.split('.').map(Number);
+const compare = (a, b) => { const x = parts(a), y = parts(b); return x[0] - y[0] || x[1] - y[1] || x[2] - y[2]; };
+
+// Tags to push for `version`: always its own tag; a floating tag (<major>.<minor>, <major>, latest)
+// only when no existing strict vX.Y.Z release within that prefix is newer, so re-running an older
+// build never moves a floating tag backwards. `existing` may contain tag names (v1.2.3) or versions.
+function floatingTags(image, version, existing = []) {
+  const [own, minorTag, majorTag, latestTag] = imageTags(image, version);
+  const [major, minor] = parts(version);
+  const versions = existing.map(entry => String(entry).replace(/^v/, '')).filter(entry => VERSION.test(entry));
+  const newest = within => versions.filter(within).every(other => compare(version, other) >= 0);
+  const tags = [own];
+  if (newest(other => parts(other)[0] === major && parts(other)[1] === minor)) tags.push(minorTag);
+  if (newest(other => parts(other)[0] === major)) tags.push(majorTag);
+  if (newest(() => true)) tags.push(latestTag);
+  return tags;
+}
+
 // Stream the file so large archives are never held in memory for hashing.
 async function digest(file) {
   const hash = createHash('sha256');
@@ -38,20 +56,14 @@ async function sha256sums(files) {
     .map(({name, hash}) => `${hash}  ${name}\n`).join('');
 }
 
-async function publishRelease({repo, tag, name, notes, assets, token, commitish = process.env.SOURCE_REVISION, fetchImpl = fetch}) {
+function validateTarget(repo, tag, token) {
   if (typeof repo !== 'string' || !REPO.test(repo) || repo.split('/')[1].startsWith('.')) throw Error('Invalid repository');
   if (typeof tag !== 'string' || !tag.startsWith('v') || !VERSION.test(tag.slice(1))) throw Error('Invalid tag');
   if (typeof token !== 'string' || !token) throw Error('Missing publish token');
-  if (typeof commitish !== 'string' || !/^[a-f0-9]{40}$/.test(commitish)) throw Error('SOURCE_REVISION must be a 40-character commit SHA');
-  if (!Array.isArray(assets) || !assets.length) throw Error('No assets to publish');
-  // The checksum file is derived here; a pre-written SHA256SUMS passed by the CLI is replaced by the computed one.
-  const files = assets.filter(file => assetName(file) !== SUMS);
-  const names = files.map(assetName);
-  if (new Set(names).size !== names.length) throw Error('Duplicate asset names');
-  const sums = await sha256sums(files);
-  // Each file is read only at its own upload; SHA256SUMS goes last so it marks a complete upload set.
-  const uploads = [...files.map((file, i) => ({name: names[i], read: () => fs.promises.readFile(file)})), {name: SUMS, read: async () => Buffer.from(sums)}];
+}
 
+// The token is only ever sent to GitHub's API and upload hosts; errors carry method, path and status only.
+function githubClient(token, fetchImpl) {
   const headers = extra => ({Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', ...extra});
   const request = async (method, url, init = {}) => {
     const target = new URL(url);
@@ -63,6 +75,32 @@ async function publishRelease({repo, tag, name, notes, assets, token, commitish 
     return {response, where};
   };
   const fail = (where, response) => Error(`${where} failed with HTTP ${response.status}`);
+  return {headers, request, fail};
+}
+
+// 'published' when a non-draft release exists for the tag (GitHub hides drafts from the tag lookup).
+async function releaseState({repo, tag, token, fetchImpl = fetch}) {
+  validateTarget(repo, tag, token);
+  const {headers, request, fail} = githubClient(token, fetchImpl);
+  const lookup = await request('GET', `https://api.github.com/repos/${repo}/releases/tags/${encodeURIComponent(tag)}`, {headers: headers()});
+  if (lookup.response.status === 200) return (await lookup.response.json()).draft === true ? 'draft-or-missing' : 'published';
+  if (lookup.response.status === 404) return 'draft-or-missing';
+  throw fail(lookup.where, lookup.response);
+}
+
+async function publishRelease({repo, tag, name, notes, assets, token, commitish = process.env.SOURCE_REVISION, fetchImpl = fetch}) {
+  validateTarget(repo, tag, token);
+  if (typeof commitish !== 'string' || !/^[a-f0-9]{40}$/.test(commitish)) throw Error('SOURCE_REVISION must be a 40-character commit SHA');
+  if (!Array.isArray(assets) || !assets.length) throw Error('No assets to publish');
+  // The checksum file is derived here; a pre-written SHA256SUMS passed by the CLI is replaced by the computed one.
+  const files = assets.filter(file => assetName(file) !== SUMS);
+  const names = files.map(assetName);
+  if (new Set(names).size !== names.length) throw Error('Duplicate asset names');
+  const sums = await sha256sums(files);
+  // Each file is read only at its own upload; SHA256SUMS goes last so it marks a complete upload set.
+  const uploads = [...files.map((file, i) => ({name: names[i], read: () => fs.promises.readFile(file)})), {name: SUMS, read: async () => Buffer.from(sums)}];
+
+  const {headers, request, fail} = githubClient(token, fetchImpl);
 
   const api = `https://api.github.com/repos/${repo}`;
   const lookup = await request('GET', `${api}/releases/tags/${encodeURIComponent(tag)}`, {headers: headers()});
@@ -102,7 +140,7 @@ async function publishRelease({repo, tag, name, notes, assets, token, commitish 
   return 'created';
 }
 
-module.exports = {imageTags, publishRelease, sha256sums};
+module.exports = {imageTags, floatingTags, releaseState, publishRelease, sha256sums};
 
 if (require.main === module) {
   (async () => {
@@ -127,6 +165,14 @@ if (require.main === module) {
       const result = await publishRelease({repo, tag: `v${version}`, name: `v${version}`, notes: fs.readFileSync(notesFile, 'utf8'),
         assets: [...files, sumsFile], token: process.env.GITHUB_PUBLISH_TOKEN});
       console.log(`Release v${version} ${result}`);
-    } else throw Error('usage: publish.cjs manifest|github ...');
+    } else if (command === 'release-state') {
+      const [repo, version] = args;
+      if (!VERSION.test(version || '')) throw Error('usage: release-state <repo> <version>');
+      console.log(await releaseState({repo, tag: `v${version}`, token: process.env.GITHUB_PUBLISH_TOKEN}));
+    } else if (command === 'tags') {
+      const [image, version, ...existing] = args;
+      if (!image || !VERSION.test(version || '')) throw Error('usage: tags <image> <version> [existing tag]...');
+      console.log(floatingTags(image, version, existing).join('\n'));
+    } else throw Error('usage: publish.cjs manifest|github|release-state|tags ...');
   })().catch(error => { console.error(`Publish failed: ${error.message}`); process.exitCode = 1; });
 }

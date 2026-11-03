@@ -102,35 +102,72 @@ stages:
           communityImage: ghcr.io/nmehlei/deviceyard
           nativeDir: $(Pipeline.Workspace)/native-community-linux-x64
           releaseDir: $(Pipeline.Workspace)/release
-        # Order: archive check, image build, smoke, image push, GitHub release. A failure before
-        # the last step leaves no GitHub release; re-pushing image tags is idempotent by tag.
+        # Order: guard, archive check, image build, smoke, image pushes, GitHub release.
+        # Archives are not byte-reproducible, so a re-run never rebuilds what is already published:
+        # the guard sets skipPublish (release and image exist) or skipImage (image exists only).
+        # A failure before the last step leaves no GitHub release.
         steps:
           - checkout: self
-            # Full history and tags: release notes are collected since the previous v* tag.
+            # Full history and tags: release notes and floating image tags depend on existing v* tags.
             fetchDepth: 0
             fetchTags: true
             persistCredentials: false
           - task: NodeTool@0
             inputs:
               versionSpec: '22.x'
-          - download: current
-            artifact: native-community-linux-x64
-            displayName: Download smoke-tested native Community archive
           - script: |
               set -euo pipefail
+              if [ -z "${GITHUB_PUBLISH_TOKEN:-}" ] || [[ "$GITHUB_PUBLISH_TOKEN" == '$('* ]]; then
+                echo "deviceyard-publishing variable group or secret missing" >&2
+                exit 1
+              fi
               if [ "$RELEASE_MODE" != stable ] || ! printf '%s' "$NATIVE_VERSION" | grep -Eqx '(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)'; then
                 echo "Publish requires a stable version from the Build stage" >&2
                 exit 1
               fi
+              # GHCR username: the owner of the fine-grained publishing token (nmehlei).
+              printf '%s' "$GITHUB_PUBLISH_TOKEN" | docker login ghcr.io --username nmehlei --password-stdin
+              release="$(node ci/release/publish.cjs release-state nmehlei/DeviceYard "$NATIVE_VERSION")"
+              # Only a definite "not found" counts as missing; any other registry error stops the run.
+              if inspect="$(docker buildx imagetools inspect "$IMAGE:$NATIVE_VERSION" 2>&1)"; then image=present
+              elif printf '%s' "$inspect" | grep -Eqi 'not found|manifest unknown|NAME_UNKNOWN'; then image=missing
+              else echo "Could not determine whether $IMAGE:$NATIVE_VERSION exists; registry output withheld" >&2; exit 1
+              fi
+              echo "Release v$NATIVE_VERSION: $release; image $IMAGE:$NATIVE_VERSION: $image"
+              skipPublish=false; skipImage=false
+              if [ "$release" = published ] && [ "$image" = present ]; then
+                echo "v$NATIVE_VERSION already published; nothing to do"
+                skipPublish=true
+              elif [ "$release" = published ]; then
+                echo "Inconsistent state: release v$NATIVE_VERSION is published but $IMAGE:$NATIVE_VERSION is missing; an operator must decide" >&2
+                exit 1
+              elif [ "$image" = present ]; then
+                echo "Image $IMAGE:$NATIVE_VERSION already exists; skipping image build and pushes, publishing the release"
+                skipImage=true
+              fi
+              echo "##vso[task.setvariable variable=skipPublish]$skipPublish"
+              echo "##vso[task.setvariable variable=skipImage]$skipImage"
+            displayName: Check publishing secret and existing release
+            env:
+              GITHUB_PUBLISH_TOKEN: $(GITHUB_PUBLISH_TOKEN)
+              NATIVE_VERSION: $(nativeVersion)
+              RELEASE_MODE: $(releaseMode)
+              IMAGE: $(communityImage)
+          - download: current
+            artifact: native-community-linux-x64
+            displayName: Download smoke-tested native Community archive
+            condition: and(succeeded(), ne(variables.skipPublish, 'true'))
+          - script: |
+              set -euo pipefail
               mkdir -p "$RELEASE_DIR/assets" "$RELEASE_DIR/context/runtime" "$RELEASE_DIR/context/container"
               archive="deviceyard-community-$NATIVE_VERSION-linux-x64.tar.gz"
               node ci/release/check-archive.cjs "$NATIVE_DIR/$archive" community
               cp "$NATIVE_DIR/$archive" "$RELEASE_DIR/assets/$archive"
               node ci/release/publish.cjs manifest "$NATIVE_DIR/$archive.json" "$RELEASE_DIR/assets/$archive.json"
             displayName: Check archive and approve its manifest
+            condition: and(succeeded(), ne(variables.skipPublish, 'true'))
             env:
               NATIVE_VERSION: $(nativeVersion)
-              RELEASE_MODE: $(releaseMode)
               NATIVE_DIR: $(nativeDir)
               RELEASE_DIR: $(releaseDir)
           - script: |
@@ -138,18 +175,15 @@ stages:
               context="$RELEASE_DIR/context"
               tar -xzf "$RELEASE_DIR/assets/deviceyard-community-$NATIVE_VERSION-linux-x64.tar.gz" -C "$context/runtime"
               cp ci/container/entrypoint.sh ci/container/validate-config.cjs ci/container/notices.cjs ci/container/toolchain.json "$context/container/"
-              node -e 'console.log(require("./ci/release/publish.cjs").imageTags(process.argv[1], process.argv[2]).join("\n"))' \
-                "$IMAGE" "$NATIVE_VERSION" > "$RELEASE_DIR/image-tags.txt"
-              tags=()
-              while read -r tag; do tags+=(--tag "$tag"); done < "$RELEASE_DIR/image-tags.txt"
               docker buildx build --platform linux/amd64 --load \
                 --build-arg EDITION=community \
                 --build-arg SOURCE_REVISION="$SOURCE_REVISION" \
                 --build-arg VERSION="$NATIVE_VERSION" \
                 --iidfile "$RELEASE_DIR/image-id.txt" \
-                "${tags[@]}" \
+                --tag "$IMAGE:$NATIVE_VERSION" \
                 -f ci/container/Dockerfile.release "$context"
             displayName: Build release image from the archive
+            condition: and(succeeded(), ne(variables.skipPublish, 'true'), ne(variables.skipImage, 'true'))
             env:
               NATIVE_VERSION: $(nativeVersion)
               RELEASE_DIR: $(releaseDir)
@@ -159,33 +193,38 @@ stages:
               set -euo pipefail
               node ci/container/smoke.cjs "$(< "$RELEASE_DIR/image-id.txt")" community
             displayName: Verify release image lifecycle and persistence
+            condition: and(succeeded(), ne(variables.skipPublish, 'true'), ne(variables.skipImage, 'true'))
             env:
               RELEASE_DIR: $(releaseDir)
           - script: |
               set -euo pipefail
-              printf '%s' "$GITHUB_PUBLISH_TOKEN" | docker login ghcr.io --username nmehlei --password-stdin
+              # Tags pushed since checkout (another run) must also hold back the floating tags.
+              git fetch --quiet --tags --force origin \
+                || echo "##vso[task.logissue type=warning]Could not refresh tags; using the tags fetched at checkout"
+              mapfile -t existing < <(git tag --list 'v*')
+              node ci/release/publish.cjs tags "$IMAGE" "$NATIVE_VERSION" "${existing[@]}" > "$RELEASE_DIR/image-tags.txt"
               built="$(< "$RELEASE_DIR/image-id.txt")"
               while read -r tag; do
-                # Push only tags that still point at the smoke-tested image.
-                if [ "$(docker image inspect --format '{{.Id}}' "$tag")" != "$built" ]; then
-                  echo "Tag $tag does not point at the tested image" >&2
-                  exit 1
-                fi
+                # Every pushed tag points at the smoke-tested image.
+                docker tag "$built" "$tag"
                 docker push --quiet "$tag"
               done < "$RELEASE_DIR/image-tags.txt"
             displayName: Push release image tags to GHCR
+            condition: and(succeeded(), ne(variables.skipPublish, 'true'), ne(variables.skipImage, 'true'))
             env:
+              NATIVE_VERSION: $(nativeVersion)
               RELEASE_DIR: $(releaseDir)
-              GITHUB_PUBLISH_TOKEN: $(GITHUB_PUBLISH_TOKEN)
+              IMAGE: $(communityImage)
           - script: |
               set -euo pipefail
-              # Highest v* release tag reachable from HEAD other than this version (a manual re-run already has it).
+              # Highest v* release tag reachable from HEAD other than this version.
               previous="$(git tag --merged HEAD --list 'v*' --sort=-v:refname \
                 | grep -Ex 'v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)' \
                 | grep -vxF "v$NATIVE_VERSION" | head -n 1 || true)"
               echo "Release notes since: ${previous:-the beginning (first release)}"
               node ci/release/notes.cjs since "${previous:--}" "$RELEASE_DIR/notes.md"
             displayName: Collect release notes
+            condition: and(succeeded(), ne(variables.skipPublish, 'true'))
             env:
               NATIVE_VERSION: $(nativeVersion)
               RELEASE_DIR: $(releaseDir)
@@ -195,6 +234,7 @@ stages:
               node ci/release/publish.cjs github nmehlei/DeviceYard "$NATIVE_VERSION" "$RELEASE_DIR/notes.md" \
                 "$RELEASE_DIR/assets/$archive" "$RELEASE_DIR/assets/$archive.json"
             displayName: Publish GitHub release
+            condition: and(succeeded(), ne(variables.skipPublish, 'true'))
             env:
               NATIVE_VERSION: $(nativeVersion)
               RELEASE_DIR: $(releaseDir)

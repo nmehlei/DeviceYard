@@ -5,7 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const {createHash} = require('node:crypto');
 const {spawnSync} = require('node:child_process');
-const {imageTags, publishRelease, sha256sums} = require('./publish.cjs');
+const {imageTags, floatingTags, releaseState, publishRelease, sha256sums} = require('./publish.cjs');
 
 const TOKEN = 'ghp_SECRETTOKENVALUE123';
 const REV = 'a'.repeat(40);
@@ -40,6 +40,53 @@ function fakeGithub({existing = null, sums = '', createStatus = 201, drafts = []
 test('imageTags returns version, minor, major and latest', () => {
   assert.deepEqual(imageTags('ghcr.io/nmehlei/deviceyard', '1.2.3'), ['ghcr.io/nmehlei/deviceyard:1.2.3', 'ghcr.io/nmehlei/deviceyard:1.2', 'ghcr.io/nmehlei/deviceyard:1', 'ghcr.io/nmehlei/deviceyard:latest']);
   assert.throws(() => imageTags('ghcr.io/x/y', '1.2'), /Invalid version/);
+});
+
+const IMG = 'ghcr.io/nmehlei/deviceyard';
+test('floatingTags gives the newest release all four tags', () => {
+  assert.deepEqual(floatingTags(IMG, '1.3.0', ['v1.2.9', 'v1.3.0', 'v0.9.0']), imageTags(IMG, '1.3.0'));
+  assert.deepEqual(floatingTags(IMG, '1.0.0', []), imageTags(IMG, '1.0.0'));
+});
+
+test('floatingTags gives an older version only its own tag', () => {
+  assert.deepEqual(floatingTags(IMG, '1.2.0', ['v1.2.0', 'v1.2.1', 'v1.3.0', 'v2.0.0']), [`${IMG}:1.2.0`]);
+});
+
+test('floatingTags moves only <major>.<minor> for a new patch on an older minor line', () => {
+  assert.deepEqual(floatingTags(IMG, '1.2.5', ['v1.2.4', 'v1.3.0']), [`${IMG}:1.2.5`, `${IMG}:1.2`]);
+  // A newer major blocks latest but not <major>.
+  assert.deepEqual(floatingTags(IMG, '1.3.1', ['v1.3.0', 'v2.0.0']), [`${IMG}:1.3.1`, `${IMG}:1.3`, `${IMG}:1`]);
+});
+
+test('floatingTags compares numerically and ignores non-release tags', () => {
+  assert.deepEqual(floatingTags(IMG, '1.10.0', ['v1.9.0', 'v1.10.0-rc.1', 'v9.0', 'v2.0.0-beta', 'cli-2.12.0', 'v01.0.0']), imageTags(IMG, '1.10.0'));
+  assert.throws(() => floatingTags(IMG, '1.2', []), /Invalid version/);
+});
+
+test('releaseState reports published, draft-or-missing, and fails on other statuses', async () => {
+  const seen = [];
+  const state = (status, body = {}) => releaseState({repo: 'o/r', tag: 'v1.2.3', token: TOKEN,
+    fetchImpl: async (url, init) => { seen.push({url: String(url), method: init.method}); return json(status, body); }});
+  assert.equal(await state(200, {draft: false}), 'published');
+  assert.equal(await state(200, {draft: true}), 'draft-or-missing');
+  assert.equal(await state(404), 'draft-or-missing');
+  await assert.rejects(state(401, {message: TOKEN}), error => error.message === 'GET /repos/o/r/releases/tags/v1.2.3 failed with HTTP 401');
+  assert.ok(seen.every(call => call.method === 'GET' && call.url === 'https://api.github.com/repos/o/r/releases/tags/v1.2.3'));
+});
+
+test('releaseState validates inputs before any request', async () => {
+  let called = false;
+  const fetchImpl = async () => { called = true; return json(404, {}); };
+  await assert.rejects(releaseState({repo: 'o/r', tag: 'v1.2.3', token: '', fetchImpl}), /Missing publish token/);
+  await assert.rejects(releaseState({repo: 'evil.com/x/y', tag: 'v1.2.3', token: TOKEN, fetchImpl}), /Invalid repository/);
+  await assert.rejects(releaseState({repo: 'o/r', tag: '1.2.3', token: TOKEN, fetchImpl}), /Invalid tag/);
+  assert.equal(called, false);
+});
+
+test('tags subcommand prints the floating tags', () => {
+  const run = spawnSync(process.execPath, [path.join(__dirname, 'publish.cjs'), 'tags', IMG, '1.2.5', 'v1.2.4', 'v1.3.0'], {encoding: 'utf8'});
+  assert.equal(run.status, 0);
+  assert.equal(run.stdout, `${IMG}:1.2.5\n${IMG}:1.2\n`);
 });
 
 test('sha256sums sorts by basename', async () => {
