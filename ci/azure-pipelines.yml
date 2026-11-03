@@ -187,8 +187,9 @@ stages:
               echo "##vso[task.setvariable variable=skipImage]$skipImage"
             displayName: Check publishing secrets and existing release
             env:
-              GITHUB_PUBLISH_TOKEN: $(GITHUB_PUBLISH_TOKEN)
-              GHCR_PUSH_TOKEN: $(GHCR_PUSH_TOKEN)
+              # Key Vault secret names allow no underscores; the group exposes them with dashes.
+              GITHUB_PUBLISH_TOKEN: $(GITHUB-PUBLISH-TOKEN)
+              GHCR_PUSH_TOKEN: $(GHCR-PUSH-TOKEN)
               NATIVE_VERSION: $(nativeVersion)
               RELEASE_MODE: $(releaseMode)
               IMAGE: $(communityImage)
@@ -288,7 +289,7 @@ stages:
               NATIVE_VERSION: $(nativeVersion)
               RELEASE_DIR: $(releaseDir)
               SOURCE_REVISION: $(Build.SourceVersion)
-              GITHUB_PUBLISH_TOKEN: $(GITHUB_PUBLISH_TOKEN)
+              GITHUB_PUBLISH_TOKEN: $(GITHUB-PUBLISH-TOKEN)
           - script: docker logout ghcr.io
             displayName: Remove GHCR credentials
             condition: always()

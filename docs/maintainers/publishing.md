@@ -13,12 +13,19 @@ in place **before** the pipeline change that references them is pushed.
 
 Create the variable group (Pipelines > Library) before pushing a pipeline
 version that references it; a run against a missing group fails at queue time.
-Store both values as secrets:
+The group is linked to an Azure Key Vault that holds both tokens as secrets;
+the pipeline's service connection needs only read access to the secrets (role
+"Key Vault Secrets User"). Key Vault secret names cannot contain underscores,
+so the group exposes them with dashes and the pipeline maps them to the
+environment names below:
 
-| Variable | Token | Scope |
-| --- | --- | --- |
-| `GITHUB_PUBLISH_TOKEN` | Fine-grained personal access token | Repositories `nmehlei/DeviceYard` and `nmehlei/DeviceYard-Pro`; Contents: read and write; Pull requests: read |
-| `GHCR_PUSH_TOKEN` | Classic personal access token | `write:packages` only (fine-grained tokens cannot push to GHCR) |
+| Key Vault secret | Environment variable | Token | Scope |
+| --- | --- | --- | --- |
+| `GITHUB-PUBLISH-TOKEN` | `GITHUB_PUBLISH_TOKEN` | Fine-grained personal access token | Repositories `nmehlei/DeviceYard` and `nmehlei/DeviceYard-Pro`; Contents: read and write; Pull requests: read |
+| `GHCR-PUSH-TOKEN` | `GHCR_PUSH_TOKEN` | Classic personal access token | `write:packages` only (fine-grained tokens cannot push to GHCR) |
+
+A token that expires or is rotated is replaced in the Key Vault only; the
+group reads the current version at the start of each run.
 
 The GHCR login uses the token owner's account as username (`nmehlei`); a token
 from another account needs the username in the pipeline changed with it.
