@@ -4,6 +4,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const {createHash} = require('node:crypto');
+const {pipeline} = require('node:stream/promises');
 const {approvedManifest} = require('../native/promote.cjs');
 
 const VERSION = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/;
@@ -17,16 +18,23 @@ function imageTags(image, version) {
   return [version, `${major}.${minor}`, major, 'latest'].map(tag => `${image}:${tag}`);
 }
 
-const digest = buffer => createHash('sha256').update(buffer).digest('hex');
+// Stream the file so large archives are never held in memory for hashing.
+async function digest(file) {
+  const hash = createHash('sha256');
+  await pipeline(fs.createReadStream(file), hash);
+  return hash.digest('hex');
+}
+const GITHUB_HOSTS = new Set(['api.github.com', 'uploads.github.com']);
 const assetName = file => {
   const name = path.basename(String(file));
   if (name === '..' || !ASSET_NAME.test(name)) throw Error('Invalid asset name');
   return name;
 };
 
-function sha256sums(files) {
-  return files.map(file => ({name: assetName(file), hash: digest(fs.readFileSync(file))}))
-    .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+async function sha256sums(files) {
+  const entries = [];
+  for (const file of files) entries.push({name: assetName(file), hash: await digest(file)});
+  return entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
     .map(({name, hash}) => `${hash}  ${name}\n`).join('');
 }
 
@@ -40,12 +48,15 @@ async function publishRelease({repo, tag, name, notes, assets, token, commitish 
   const files = assets.filter(file => assetName(file) !== SUMS);
   const names = files.map(assetName);
   if (new Set(names).size !== names.length) throw Error('Duplicate asset names');
-  const sums = sha256sums(files);
-  const uploads = [...files.map((file, i) => ({name: names[i], body: fs.readFileSync(file)})), {name: SUMS, body: Buffer.from(sums)}];
+  const sums = await sha256sums(files);
+  // Each file is read only at its own upload; SHA256SUMS goes last so it marks a complete upload set.
+  const uploads = [...files.map((file, i) => ({name: names[i], read: () => fs.promises.readFile(file)})), {name: SUMS, read: async () => Buffer.from(sums)}];
 
   const headers = extra => ({Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', ...extra});
   const request = async (method, url, init = {}) => {
-    const where = `${method} ${new URL(url).pathname}`;
+    const target = new URL(url);
+    if (target.protocol !== 'https:' || !GITHUB_HOSTS.has(target.hostname)) throw Error('Refusing to send the token to a non-GitHub host');
+    const where = `${method} ${target.pathname}`;
     let response;
     try { response = await fetchImpl(url, {method, ...init}); }
     catch { throw Error(`${where} failed: request error`); }
@@ -66,16 +77,28 @@ async function publishRelease({repo, tag, name, notes, assets, token, commitish 
   }
   if (lookup.response.status !== 404) throw fail(lookup.where, lookup.response);
 
+  // GitHub hides drafts from the tag lookup; a draft with this tag is a half-finished earlier run.
+  const listing = await request('GET', `${api}/releases?per_page=100`, {headers: headers()});
+  if (!listing.response.ok) throw fail(listing.where, listing.response);
+  for (const stale of (await listing.response.json()).filter(release => release.draft === true && release.tag_name === tag)) {
+    const removal = await request('DELETE', `${api}/releases/${encodeURIComponent(stale.id)}`, {headers: headers()});
+    if (!removal.response.ok) throw fail(removal.where, removal.response);
+  }
+
   const create = await request('POST', `${api}/releases`, {headers: headers({'Content-Type': 'application/json'}),
-    body: JSON.stringify({tag_name: tag, name, body: notes, target_commitish: commitish, draft: false, prerelease: false})});
+    body: JSON.stringify({tag_name: tag, name, body: notes, target_commitish: commitish, draft: true, prerelease: false})});
   if (create.response.status !== 201) throw fail(create.where, create.response);
-  const uploadUrl = String((await create.response.json()).upload_url || '').replace(/\{[^}]*\}$/, '');
+  const created = await create.response.json();
+  const uploadUrl = String(created.upload_url || '').replace(/\{[^}]*\}$/, '');
   if (!/^https:\/\//.test(uploadUrl)) throw Error(`${create.where} returned no upload URL`);
-  for (const {name: assetFile, body} of uploads) {
+  for (const {name: assetFile, read} of uploads) {
+    const body = await read();
     const upload = await request('POST', `${uploadUrl}?name=${encodeURIComponent(assetFile)}`,
       {headers: headers({'Content-Type': 'application/octet-stream', 'Content-Length': String(body.length)}), body});
     if (upload.response.status !== 201) throw fail(upload.where, upload.response);
   }
+  const publish = await request('PATCH', `${api}/releases/${encodeURIComponent(created.id)}`, {headers: headers({'Content-Type': 'application/json'}), body: JSON.stringify({draft: false})});
+  if (publish.response.status !== 200) throw fail(publish.where, publish.response);
   return 'created';
 }
 
@@ -89,7 +112,7 @@ if (require.main === module) {
       if (!candidateFile || !outFile) throw Error('usage: manifest <candidate.json> <out.json> [keyIds]');
       const candidate = JSON.parse(fs.readFileSync(candidateFile, 'utf8'));
       // Validate the name before joining a path supplied by an artifact manifest.
-      if (typeof candidate.blob !== 'string' || path.basename(candidate.blob) !== candidate.blob) throw Error('Invalid archive name');
+      if (typeof candidate.blob !== 'string' || path.basename(candidate.blob) !== candidate.blob || ['.', '..'].includes(candidate.blob)) throw Error('Invalid archive name');
       const archive = path.join(path.dirname(path.resolve(candidateFile)), candidate.blob);
       const manifest = approvedManifest(candidate, archive, keyIds.split(',').filter(Boolean));
       fs.writeFileSync(outFile, JSON.stringify(manifest, null, 2) + '\n');
@@ -100,7 +123,7 @@ if (require.main === module) {
       if (!VERSION.test(version || '')) throw Error('Invalid version');
       const sumsFile = path.join(path.dirname(path.resolve(assets[0])), SUMS);
       const files = assets.filter(file => assetName(file) !== SUMS);
-      fs.writeFileSync(sumsFile, sha256sums(files));
+      fs.writeFileSync(sumsFile, await sha256sums(files));
       const result = await publishRelease({repo, tag: `v${version}`, name: `v${version}`, notes: fs.readFileSync(notesFile, 'utf8'),
         assets: [...files, sumsFile], token: process.env.GITHUB_PUBLISH_TOKEN});
       console.log(`Release v${version} ${result}`);

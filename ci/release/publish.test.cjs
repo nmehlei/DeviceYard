@@ -20,14 +20,17 @@ const json = (status, body) => ({ok: status >= 200 && status < 300, status, json
 const text = (status, body) => ({ok: status >= 200 && status < 300, status, text: async () => body, json: async () => { throw Error('not json'); }});
 
 // Fake GitHub: `existing` is a release object (or null) returned by the tag lookup.
-function fakeGithub({existing = null, sums = '', createStatus = 201} = {}) {
+function fakeGithub({existing = null, sums = '', createStatus = 201, drafts = [], uploadHost = 'uploads.github.com'} = {}) {
   const calls = [];
   const fetchImpl = async (url, init = {}) => {
     const u = new URL(url); const method = init.method || 'GET';
     calls.push({url: String(url), method, headers: init.headers || {}, body: init.body});
     if (method === 'GET' && u.pathname.startsWith('/repos/o/r/releases/tags/')) return existing ? json(200, existing) : json(404, {message: 'Not Found'});
     if (method === 'GET' && u.pathname.startsWith('/repos/o/r/releases/assets/')) return text(200, sums);
-    if (method === 'POST' && u.pathname === '/repos/o/r/releases') return createStatus === 201 ? json(201, {id: 1, upload_url: 'https://uploads.github.com/repos/o/r/releases/1/assets{?name,label}'}) : json(createStatus, {message: TOKEN + ' leaked body'});
+    if (method === 'GET' && u.pathname === '/repos/o/r/releases') return json(200, drafts);
+    if (method === 'DELETE' && u.pathname.startsWith('/repos/o/r/releases/')) return {ok: true, status: 204};
+    if (method === 'PATCH' && u.pathname === '/repos/o/r/releases/1') return json(200, {id: 1});
+    if (method === 'POST' && u.pathname === '/repos/o/r/releases') return createStatus === 201 ? json(201, {id: 1, upload_url: `https://${uploadHost}/repos/o/r/releases/1/assets{?name,label}`}) : json(createStatus, {message: TOKEN + ' leaked body'});
     if (method === 'POST' && u.pathname === '/repos/o/r/releases/1/assets') return json(201, {id: 9});
     return json(500, {message: 'unexpected ' + method + ' ' + url});
   };
@@ -39,11 +42,11 @@ test('imageTags returns version, minor, major and latest', () => {
   assert.throws(() => imageTags('ghcr.io/x/y', '1.2'), /Invalid version/);
 });
 
-test('sha256sums sorts by basename', () => {
+test('sha256sums sorts by basename', async () => {
   const w = workdir({'b.txt': 'b', 'a.txt': 'a'});
   try {
     const sha = c => createHash('sha256').update(c).digest('hex');
-    assert.equal(sha256sums(w.paths), `${sha('a')}  a.txt\n${sha('b')}  b.txt\n`);
+    assert.equal(await sha256sums(w.paths), `${sha('a')}  a.txt\n${sha('b')}  b.txt\n`);
   } finally { w.cleanup(); }
 });
 
@@ -54,7 +57,7 @@ test('publishRelease creates release and uploads every asset plus SHA256SUMS', a
     const result = await publishRelease({repo: 'o/r', tag: 'v1.2.3', name: 'v1.2.3', notes: 'Hello', assets: w.paths, token: TOKEN, fetchImpl: gh.fetchImpl});
     assert.equal(result, 'created');
     const create = gh.calls.find(c => c.method === 'POST' && c.url.endsWith('/releases'));
-    assert.deepEqual(JSON.parse(create.body), {tag_name: 'v1.2.3', name: 'v1.2.3', body: 'Hello', target_commitish: REV, draft: false, prerelease: false});
+    assert.deepEqual(JSON.parse(create.body), {tag_name: 'v1.2.3', name: 'v1.2.3', body: 'Hello', target_commitish: REV, draft: true, prerelease: false});
     assert.equal(create.headers.Authorization, `Bearer ${TOKEN}`);
     assert.equal(create.headers.Accept, 'application/vnd.github+json');
     assert.equal(create.headers['X-GitHub-Api-Version'], '2022-11-28');
@@ -66,14 +69,14 @@ test('publishRelease creates release and uploads every asset plus SHA256SUMS', a
       assert.equal(u.headers['Content-Length'], String(u.body.length));
     }
     const sums = uploads.find(c => c.url.endsWith('name=SHA256SUMS'));
-    assert.equal(sums.body.toString(), sha256sums(w.paths));
+    assert.equal(sums.body.toString(), await sha256sums(w.paths));
   } finally { w.cleanup(); }
 });
 
 test('publishRelease is a no-op for the same sha256', async () => {
   const w = workdir({'one.tar.gz': 'ONE'});
   try {
-    const gh = fakeGithub({existing: {id: 1, assets: [{name: 'SHA256SUMS', url: 'https://api.github.com/repos/o/r/releases/assets/5'}]}, sums: sha256sums(w.paths)});
+    const gh = fakeGithub({existing: {id: 1, assets: [{name: 'SHA256SUMS', url: 'https://api.github.com/repos/o/r/releases/assets/5'}]}, sums: await sha256sums(w.paths)});
     assert.equal(await publishRelease({repo: 'o/r', tag: 'v1.2.3', name: 'v1.2.3', notes: 'x', assets: w.paths, token: TOKEN, fetchImpl: gh.fetchImpl}), 'unchanged');
     assert.ok(gh.calls.every(c => c.method === 'GET'));
     assert.equal(gh.calls.find(c => c.url.endsWith('/assets/5')).headers.Accept, 'application/octet-stream');
@@ -129,6 +132,60 @@ test('errors never contain the token', async () => {
     });
     const boom = async () => { throw Error(`connect failed with ${TOKEN}`); };
     await assert.rejects(publishRelease({repo: 'o/r', tag: 'v1.2.3', name: 'v1.2.3', notes: 'x', assets: w.paths, token: TOKEN, fetchImpl: boom}), err => !err.message.includes(TOKEN));
+  } finally { w.cleanup(); }
+});
+
+test('publishes the draft only after SHA256SUMS is uploaded', async () => {
+  const w = workdir({'one.tar.gz': 'ONE', 'two.json': '{}'});
+  try {
+    const gh = fakeGithub();
+    await publishRelease({repo: 'o/r', tag: 'v1.2.3', name: 'v1.2.3', notes: 'x', assets: w.paths, token: TOKEN, fetchImpl: gh.fetchImpl});
+    const writes = gh.calls.filter(c => c.method !== 'GET').map(c => c.method + ' ' + (new URL(c.url).searchParams.get('name') || new URL(c.url).pathname));
+    assert.equal(writes.length, 5);
+    assert.equal(writes[3], 'POST SHA256SUMS');
+    assert.equal(writes[4], 'PATCH /repos/o/r/releases/1');
+    assert.equal(JSON.parse(gh.calls.at(-1).body).draft, false);
+  } finally { w.cleanup(); }
+});
+
+test('a crash before publishing leaves only a draft, and a rerun replaces it', async () => {
+  const w = workdir({'one.tar.gz': 'ONE'});
+  try {
+    // First run: the upload fails, so the PATCH that publishes never happens.
+    const crash = fakeGithub();
+    const failing = async (url, init = {}) => String(url).includes('/assets?name=SHA256SUMS') ? json(500, {}) : crash.fetchImpl(url, init);
+    await assert.rejects(publishRelease({repo: 'o/r', tag: 'v1.2.3', name: 'v1.2.3', notes: 'x', assets: w.paths, token: TOKEN, fetchImpl: failing}), /500/);
+    assert.ok(!crash.calls.some(c => c.method === 'PATCH'));
+    assert.equal(JSON.parse(crash.calls.find(c => c.method === 'POST' && c.url.endsWith('/releases')).body).draft, true);
+    // Rerun: the tag lookup 404s (drafts are invisible there), the draft is found, deleted and recreated.
+    const rerun = fakeGithub({drafts: [{id: 7, tag_name: 'v1.2.3', draft: true}, {id: 8, tag_name: 'v9.9.9', draft: true}, {id: 6, tag_name: 'v1.2.3', draft: false}]});
+    assert.equal(await publishRelease({repo: 'o/r', tag: 'v1.2.3', name: 'v1.2.3', notes: 'x', assets: w.paths, token: TOKEN, fetchImpl: rerun.fetchImpl}), 'created');
+    const deletes = rerun.calls.filter(c => c.method === 'DELETE');
+    assert.deepEqual(deletes.map(c => new URL(c.url).pathname), ['/repos/o/r/releases/7']);
+    assert.ok(rerun.calls.findIndex(c => c.method === 'DELETE') < rerun.calls.findIndex(c => c.method === 'POST'));
+    assert.ok(rerun.calls.some(c => c.method === 'PATCH'));
+  } finally { w.cleanup(); }
+});
+
+test('the token is only sent to GitHub API and upload hosts', async () => {
+  const w = workdir({'one.tar.gz': 'ONE'});
+  try {
+    const evil = fakeGithub({uploadHost: 'evil.example.com'});
+    await assert.rejects(publishRelease({repo: 'o/r', tag: 'v1.2.3', name: 'v1.2.3', notes: 'x', assets: w.paths, token: TOKEN, fetchImpl: evil.fetchImpl}), /non-GitHub host/);
+    assert.ok(evil.calls.every(c => new URL(c.url).hostname === 'api.github.com'));
+    const gh = fakeGithub({existing: {id: 1, assets: [{name: 'SHA256SUMS', url: 'https://evil.example.com/x'}]}});
+    await assert.rejects(publishRelease({repo: 'o/r', tag: 'v1.2.3', name: 'v1.2.3', notes: 'x', assets: w.paths, token: TOKEN, fetchImpl: gh.fetchImpl}), /non-GitHub host/);
+  } finally { w.cleanup(); }
+});
+
+test('manifest subcommand rejects dot blob names', () => {
+  const w = workdir({});
+  try {
+    for (const blob of ['.', '..']) {
+      const cand = path.join(w.dir, 'c.json'); fs.writeFileSync(cand, JSON.stringify({blob}));
+      const r = spawnSync(process.execPath, [path.join(__dirname, 'publish.cjs'), 'manifest', cand, path.join(w.dir, 'o.json')], {encoding: 'utf8'});
+      assert.notEqual(r.status, 0); assert.match(r.stderr, /Invalid archive name/);
+    }
   } finally { w.cleanup(); }
 });
 
