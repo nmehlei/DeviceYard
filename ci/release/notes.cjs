@@ -29,9 +29,20 @@ function showAt(root, rev, file) {
   try { return git(root, ['show', `${rev}:${file}`]); } catch { return null; }
 }
 
+// Fragment text comes from contributors (including fork PRs) but is published under the
+// maintainer's name: no HTML, no live @mentions, no leading Markdown syntax, bounded length.
+function neutralize(line) {
+  return line.slice(0, 200)
+    .replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/@(?=\w)/g, '@\u200d')
+    .replace(/^([#\-*+])/, '\\$1')
+    .replace(/^(\d+)\./, '$1\\.');
+}
+
 function checkPullRequest(root, base, head) {
-  const added = git(root, ['diff', '--name-only', '--diff-filter=A', `${base}...${head}`, '--', 'release-notes/'])
-    .split('\n').filter(isFragmentPath);
+  try { git(root, ['rev-parse', '--verify', '--quiet', `${base}^{commit}`]); } catch { throw new Error(`${base} not available`); }
+  const added = git(root, ['diff', '-z', '--name-only', '--no-renames', '--diff-filter=A', `${base}...${head}`, '--', 'release-notes/'])
+    .split('\0').filter(isFragmentPath);
   const valid = added.some((file) => {
     const text = showAt(root, head, file);
     return text !== null && parseFragment(text) !== null;
@@ -39,21 +50,23 @@ function checkPullRequest(root, base, head) {
   if (!valid) throw new Error(MISSING);
 }
 
+// Fragments are read as first added (later edits are ignored) and only if still present at head.
 function notesSince(root, previousTag, head = 'HEAD') {
   const range = previousTag ? [`${previousTag}..${head}`] : [head];
-  const log = git(root, ['log', '--reverse', '--no-merges', '--diff-filter=A', '--name-only', '--format=commit %H', ...range, '--', 'release-notes/']);
-  const present = previousTag ? null : new Set(git(root, ['ls-tree', '-r', '--name-only', head, '--', 'release-notes/']).split('\n'));
+  const log = git(root, ['log', '-z', '--reverse', '--no-merges', '--no-renames', '--diff-filter=A', '--name-only', '--format=%x01%H%x02', ...range, '--', 'release-notes/']);
+  const present = new Set(git(root, ['ls-tree', '-r', '-z', '--name-only', head, '--', 'release-notes/']).split('\0'));
   const seen = new Set();
   const bullets = [];
   let commit = null;
-  for (const line of log.split('\n')) {
-    if (line.startsWith('commit ')) { commit = line.slice(7); continue; }
-    if (!line || !isFragmentPath(line) || seen.has(line)) continue;
-    if (present && !present.has(line)) continue;
-    seen.add(line);
-    const text = showAt(root, present ? head : commit, line) ?? showAt(root, commit, line);
+  for (let token of log.split('\0')) {
+    const m = /\x01([0-9a-f]+)\x02/.exec(token);
+    if (m) { commit = m[1]; token = token.slice(m.index + m[0].length); }
+    token = token.replace(/^\n+/, '');
+    if (!token || !isFragmentPath(token) || seen.has(token) || !present.has(token)) continue;
+    seen.add(token);
+    const text = showAt(root, commit, token);
     const lines = text === null ? null : parseFragment(text);
-    if (lines) bullets.push(...lines.map((entry) => (entry.startsWith('- ') ? entry : `- ${entry}`)));
+    if (lines) bullets.push(...lines.map((entry) => `- ${neutralize(entry)}`));
   }
   return bullets.length ? `${bullets.join('\n')}\n` : `${MAINTENANCE}\n`;
 }
