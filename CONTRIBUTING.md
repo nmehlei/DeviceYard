@@ -31,3 +31,8 @@ the origin and hashes of any new binary fixture. First-party contributions are
 covered by the repository's AGPL-3.0-only licence.
 
 Report security issues privately as described in [SECURITY.md](SECURITY.md).
+
+Every pull request adds a release-note fragment, `release-notes/<slug>.md`, with
+1-5 user-facing lines, or the single line `none` for changes users cannot see.
+The pull-request build fails without one; see
+[release-notes/README.md](release-notes/README.md).

@@ -30,8 +30,13 @@ steps:
   - task: NodeTool@0
     inputs:
       versionSpec: '22.x'
-  - script: node --test ci/native/version.test.cjs ci/native/git-version.test.cjs
-    displayName: Test Community native version selection
+  - script: node --test ci/native/version.test.cjs ci/native/git-version.test.cjs ci/release/notes.test.cjs
+    displayName: Test Community native version selection and release notes
+  - script: |
+      git fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
+      node ci/release/notes.cjs check origin/main HEAD
+    displayName: Require a release-note fragment
+    condition: eq(variables['Build.Reason'], 'PullRequest')
   - script: node ci/native/version.cjs
     displayName: Select Community native archive version
     env:
