@@ -6,6 +6,11 @@
     "url": "https://github.com/mobile-dev-inc/Maestro/releases/download/cli-2.6.1/maestro.zip",
     "sha256": "3440825f514f537c6a96bcf5de995780c2a4a7f83a43208fdc95d4f1fecfad3b"
   },
+  "maestroFork": {
+    "version": "cli-2.12.0-android-user.1",
+    "url": "https://github.com/nmehlei/Maestro/releases/download/cli-2.12.0-android-user.1/maestro.zip",
+    "sha256": "16be7368f731a584b323ac9e3a176d0e04da8164273796b87f29864cd99e356f"
+  },
   "javaPackage": "openjdk-17-jre-headless",
   "adbPackage": "adb",
   "packagePolicy": "Debian signed package repositories; exact installed versions recorded in notices/os-packages.tsv on every build. Rebuilds may include security updates."

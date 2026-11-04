@@ -9,6 +9,10 @@ const {execFile} = require('node:child_process');
 const {promisify} = require('node:util');
 const exec = promisify(execFile);
 const image = process.argv[2] || 'deviceyard-community:test';
+const editionName = process.argv[3] || 'community';
+if (editionName !== 'community' && editionName !== 'pro') throw Error('Edition must be community or pro');
+// Pro assembles the Community core under dist/core.
+const core = editionName === 'pro' ? 'dist/core' : 'dist';
 const name = `deviceyard-smoke-${randomBytes(6).toString('hex')}`;
 const volumes = [`${name}-data`, `${name}-adb`];
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'deviceyard-container-'));
@@ -66,7 +70,7 @@ async function main() {
     assert.notEqual(uid,'0','Runtime must be non-root');
     await docker(['run','--rm','--entrypoint','test',image,'!','-e','/home/deviceyard/.maestro/analytics.json']);
     await docker(['run','--rm','--entrypoint','sh',image,'-ec',
-      'node --version; java -version; adb version; maestro --version; test -s /opt/deviceyard/dist/src/public/index.html; test -s /opt/deviceyard/dist/src/mcp.mjs; test -s /opt/deviceyard/dist/cli.cjs; test -s /opt/deviceyard/dist/vendor/scrcpy/LICENSE; test -s /opt/deviceyard/notices/dependencies.json; test -s /opt/deviceyard/notices/os-packages.tsv; test ! -d /opt/deviceyard/tests; test ! -d /opt/deviceyard/.git; test ! -d /opt/deviceyard/node_modules/typescript; test ! -e /home/deviceyard/.android/adbkey']);
+      'node --version; java -version; adb version; maestro --version; test -s /opt/deviceyard/'+core+'/src/public/index.html; test -s /opt/deviceyard/'+core+'/src/mcp.mjs; test -s /opt/deviceyard/dist/cli.cjs; test -s /opt/deviceyard/'+core+'/vendor/scrcpy/LICENSE; test -s /opt/deviceyard/notices/dependencies.json; test -s /opt/deviceyard/notices/os-packages.tsv; test ! -d /opt/deviceyard/tests; test ! -d /opt/deviceyard/.git; test ! -d /opt/deviceyard/node_modules/typescript; test ! -e /home/deviceyard/.android/adbkey']);
     stage = 'fresh-volume startup';
     writeEnv(env);
     const base = await start();
@@ -80,7 +84,7 @@ async function main() {
     const response = await fetch(base+'/api/edition',{headers:{cookie},signal:AbortSignal.timeout(10000)});
     const edition = await response.json();
     assert.equal(response.status,200);
-    assert.equal(edition.edition,'community');
+    assert.equal(edition.edition,editionName);
     assert.equal(edition.multiDevice,false);
     const paused = await fetch(base+'/api/admin/maintenance', {method:'PUT',headers:{cookie,'Content-Type':'application/json'},body:JSON.stringify({requested:true}),signal:AbortSignal.timeout(10000)});
     assert.equal(paused.status,200,'Admin must be able to enable maintenance');

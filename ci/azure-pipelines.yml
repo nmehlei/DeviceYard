@@ -1,4 +1,6 @@
 trigger:
+  # Merges arriving while a main run is in progress are built together in one later run.
+  batch: true
   branches:
     include: [main]
 pr:
@@ -12,56 +14,284 @@ parameters:
     default: candidate
     values: [candidate, stable]
 
+# Runs waiting on the Exclusive Lock check of deviceyard-publishing queue in order instead of
+# being cancelled (see docs/maintainers/publishing.md).
+lockBehavior: sequential
+
 # Public contributions must never execute on the private Default pool.
 pool:
   vmImage: ubuntu-latest
 
-steps:
-  - checkout: self
-    fetchDepth: 0
-    fetchTags: true
-    persistCredentials: false
-  - task: UseDotNet@2
-    inputs:
-      packageType: sdk
-      version: '8.0.x'
-  - script: dotnet tool restore
-    displayName: Restore pinned GitVersion 5.12.0
-  - task: NodeTool@0
-    inputs:
-      versionSpec: '22.x'
-  - script: node --test ci/native/version.test.cjs ci/native/git-version.test.cjs
-    displayName: Test Community native version selection
-  - script: node ci/native/version.cjs
-    displayName: Select Community native archive version
-    env:
-      NATIVE_RELEASE_MODE: ${{ parameters.nativeReleaseMode }}
-  - script: npm ci
-    displayName: Install server and CLI dependencies
-  - script: npm --prefix dashboard ci
-    displayName: Install dashboard dependencies
-  - script: npm test -- --runInBand --watchman=false --testTimeout=30000
-    displayName: Test server and CLI
-  - script: npm --prefix dashboard test -- --runInBand --watchman=false
-    displayName: Test dashboard
-  - script: npm run build -- --webpack
-    displayName: Build Community and verify runtime assets
-  - script: node ci/smoke.cjs
-    displayName: Verify compiled Community startup
-  - script: node --test ci/native/package.test.cjs
-    displayName: Test native packaging boundaries
-  - script: node ci/notices.cjs
-    displayName: Collect release-platform dependency notices
-  - script: node ci/native/package.cjs "$(Build.ArtifactStagingDirectory)/native" "$(nativeVersion)"
-    displayName: Package native Community candidate
-  - script: node ci/native/smoke.cjs "$(Build.ArtifactStagingDirectory)/native/deviceyard-community-$(nativeVersion)-linux-x64.tar.gz.json"
-    displayName: Verify extracted native Community archive
-  - task: PublishPipelineArtifact@1
-    displayName: Retain private native candidate (no release promotion)
-    inputs:
-      targetPath: '$(Build.ArtifactStagingDirectory)/native'
-      artifact: native-community-linux-x64
-  - script: docker build --platform linux/amd64 --build-arg SOURCE_REVISION=$(Build.SourceVersion) -f ci/container/Dockerfile -t deviceyard-community:test .
-    displayName: Build Community container (no publication)
-  - script: node ci/container/smoke.cjs deviceyard-community:test
-    displayName: Verify container lifecycle and persistence
+stages:
+  - stage: Build
+    # Never references deviceyard-publishing: PR and fork builds carry no publishing credential.
+    jobs:
+      - job: build
+        displayName: Build and verify Community
+        steps:
+          - checkout: self
+            fetchDepth: 0
+            fetchTags: true
+            persistCredentials: false
+          - task: UseDotNet@2
+            inputs:
+              packageType: sdk
+              version: '8.0.x'
+          - script: dotnet tool restore
+            displayName: Restore pinned GitVersion 5.12.0
+          - task: NodeTool@0
+            inputs:
+              versionSpec: '22.x'
+          - script: node --test ci/native/version.test.cjs ci/native/git-version.test.cjs ci/release/notes.test.cjs ci/release/check-archive.test.cjs ci/release/publish.test.cjs
+            displayName: Test Community native version selection and release tooling
+          - script: |
+              # Best effort: credentials are not persisted; the check itself fails clearly if origin/main is missing.
+              git fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main' || true
+              node ci/release/notes.cjs check origin/main HEAD
+            displayName: Require a release-note fragment
+            condition: eq(variables['Build.Reason'], 'PullRequest')
+          - script: node ci/native/version.cjs
+            name: selectVersion
+            displayName: Select Community native archive version
+            env:
+              NATIVE_REQUESTED_MODE: ${{ parameters.nativeReleaseMode }}
+              # Every merge to main packages the stable edition version; other builds follow the parameter.
+              ${{ if and(eq(variables['Build.SourceBranch'], 'refs/heads/main'), in(variables['Build.Reason'], 'IndividualCI', 'BatchedCI', 'Manual')) }}:
+                NATIVE_RELEASE_MODE: stable
+              ${{ else }}:
+                NATIVE_RELEASE_MODE: ${{ parameters.nativeReleaseMode }}
+          - script: npm ci
+            displayName: Install server and CLI dependencies
+          - script: npm --prefix dashboard ci
+            displayName: Install dashboard dependencies
+          - script: npm test -- --runInBand --watchman=false --testTimeout=30000
+            displayName: Test server and CLI
+          - script: npm --prefix dashboard test -- --runInBand --watchman=false
+            displayName: Test dashboard
+          - script: npm run build -- --webpack
+            displayName: Build Community and verify runtime assets
+          - script: node ci/smoke.cjs
+            displayName: Verify compiled Community startup
+          - script: node --test ci/native/package.test.cjs
+            displayName: Test native packaging boundaries
+          - script: node ci/notices.cjs
+            displayName: Collect release-platform dependency notices
+          - script: node ci/native/package.cjs "$(Build.ArtifactStagingDirectory)/native" "$(nativeVersion)"
+            displayName: Package native Community candidate
+          - script: node ci/native/smoke.cjs "$(Build.ArtifactStagingDirectory)/native/deviceyard-community-$(nativeVersion)-linux-x64.tar.gz.json"
+            displayName: Verify extracted native Community archive
+          - task: PublishPipelineArtifact@1
+            displayName: Retain private native candidate (no release promotion)
+            inputs:
+              targetPath: '$(Build.ArtifactStagingDirectory)/native'
+              artifact: native-community-linux-x64
+          - script: docker build --platform linux/amd64 --build-arg SOURCE_REVISION=$(Build.SourceVersion) -f ci/container/Dockerfile -t deviceyard-community:test .
+            displayName: Build Community container (no publication)
+          - script: node ci/container/smoke.cjs deviceyard-community:test
+            displayName: Verify container lifecycle and persistence
+          # The release image, built exactly as Publish builds it (same archive checks, context script
+          # and Dockerfile), but only loaded locally and smoke-tested: no credentials, no push.
+          - script: |
+              set -euo pipefail
+              candidate="$(Agent.TempDirectory)/release-candidate"
+              archive="$NATIVE_DIR/deviceyard-community-$NATIVE_VERSION-linux-x64.tar.gz"
+              node ci/release/check-archive.cjs "$archive" community
+              ci/release/image-context.sh "$archive" "$candidate/context"
+              docker buildx build --platform linux/amd64 --load \
+                --build-arg EDITION=community \
+                --build-arg SOURCE_REVISION="$SOURCE_REVISION" \
+                --build-arg VERSION="$NATIVE_VERSION" \
+                --iidfile "$candidate/image-id.txt" \
+                -f ci/container/Dockerfile.release "$candidate/context"
+              node ci/container/smoke.cjs "$(< "$candidate/image-id.txt")" community
+            displayName: Build and verify release image from the archive (no publication)
+            env:
+              NATIVE_VERSION: $(nativeVersion)
+              NATIVE_DIR: $(Build.ArtifactStagingDirectory)/native
+              SOURCE_REVISION: $(Build.SourceVersion)
+
+  - stage: Publish
+    displayName: Publish Community release
+    dependsOn: Build
+    # Merges to main (and manual main runs, which republish the existing version idempotently)
+    # whose Build stage selected stable packaging. Never PR builds.
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'), ne(variables['Build.Reason'], 'PullRequest'), eq(dependencies.Build.outputs['build.selectVersion.releaseMode'], 'stable'))
+    variables:
+      # The only place the publishing secrets are referenced. Restricting the group to main (Branch
+      # control) and serializing runs (Exclusive Lock) are owner checks on the variable group, not
+      # something this file enforces: see docs/maintainers/publishing.md.
+      - group: deviceyard-publishing
+    jobs:
+      - job: publish
+        displayName: Publish image and GitHub release
+        variables:
+          nativeVersion: $[ stageDependencies.Build.build.outputs['selectVersion.nativeVersion'] ]
+          releaseMode: $[ stageDependencies.Build.build.outputs['selectVersion.releaseMode'] ]
+          communityImage: ghcr.io/nmehlei/deviceyard
+          nativeDir: $(Pipeline.Workspace)/native-community-linux-x64
+          releaseDir: $(Pipeline.Workspace)/release
+        # Order: guard, archive check, image build, smoke, image pushes, GitHub release.
+        # Archives are not byte-reproducible, so a re-run never rebuilds what is already published:
+        # the guard sets skipPublish (release and image exist) or skipImage (image exists only).
+        # A failure before the last step leaves no GitHub release.
+        steps:
+          - checkout: self
+            # Full history and tags: release notes and floating image tags depend on existing v* tags.
+            # Runs are serialized (Exclusive Lock), so the tags fetched here are current.
+            fetchDepth: 0
+            fetchTags: true
+            persistCredentials: false
+          - task: NodeTool@0
+            inputs:
+              versionSpec: '22.x'
+          - script: |
+              set -euo pipefail
+              # An undefined secret reaches env: as the literal "$(NAME)"; report the name, never a value.
+              for secret in GITHUB_PUBLISH_TOKEN GHCR_PUSH_TOKEN; do
+                if [ -z "${!secret:-}" ] || [[ "${!secret}" == '$('* ]]; then
+                  echo "deviceyard-publishing variable group or secret missing: $secret" >&2
+                  exit 1
+                fi
+              done
+              if [ "$RELEASE_MODE" != stable ] || ! printf '%s' "$NATIVE_VERSION" | grep -Eqx '(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)'; then
+                echo "Publish requires a stable version from the Build stage" >&2
+                exit 1
+              fi
+              # Fine-grained tokens cannot push to GHCR: GHCR_PUSH_TOKEN (classic, write:packages only, owned
+              # by nmehlei, the GHCR username) is used only for this login; the job's later image steps reuse it
+              # through DOCKER_CONFIG in the job's temp directory, which the agent removes after the job.
+              printf '%s' "$GHCR_PUSH_TOKEN" | docker login ghcr.io --username nmehlei --password-stdin
+              unset GHCR_PUSH_TOKEN
+              # GITHUB_PUBLISH_TOKEN (fine-grained: contents rw, pull requests read) is used only by publish.cjs.
+              release="$(node ci/release/publish.cjs release-state nmehlei/DeviceYard "$NATIVE_VERSION")"
+              # Only a definite "not found" counts as missing; any other registry error stops the run.
+              if inspect="$(docker buildx imagetools inspect "$IMAGE:$NATIVE_VERSION" 2>&1)"; then image=present
+              # GHCR answers denied/unauthorized for a package that was never pushed (first release); a real
+              # auth problem then still fails at the push, so this cannot cause a wrong overwrite.
+              elif printf '%s' "$inspect" | grep -Eqi 'not found|manifest unknown|NAME_UNKNOWN|denied|unauthorized'; then image=missing
+              else echo "Could not determine whether $IMAGE:$NATIVE_VERSION exists; registry output withheld" >&2; exit 1
+              fi
+              echo "Release v$NATIVE_VERSION: $release; image $IMAGE:$NATIVE_VERSION: $image"
+              skipPublish=false; skipImage=false
+              if [ "$release" = published ] && [ "$image" = present ]; then
+                echo "v$NATIVE_VERSION already published; nothing to do"
+                skipPublish=true
+              elif [ "$release" = published ]; then
+                echo "Inconsistent state: release v$NATIVE_VERSION is published but $IMAGE:$NATIVE_VERSION is missing; an operator must decide" >&2
+                exit 1
+              elif [ "$image" = present ]; then
+                echo "Image $IMAGE:$NATIVE_VERSION already exists; skipping image build and pushes, publishing the release"
+                skipImage=true
+              fi
+              echo "##vso[task.setvariable variable=skipPublish]$skipPublish"
+              echo "##vso[task.setvariable variable=skipImage]$skipImage"
+            displayName: Check publishing secrets and existing release
+            env:
+              # Key Vault secret names allow no underscores; the group exposes them with dashes.
+              GITHUB_PUBLISH_TOKEN: $(GITHUB-PUBLISH-TOKEN)
+              GHCR_PUSH_TOKEN: $(GHCR-PUSH-TOKEN)
+              NATIVE_VERSION: $(nativeVersion)
+              RELEASE_MODE: $(releaseMode)
+              IMAGE: $(communityImage)
+              DOCKER_CONFIG: $(Agent.TempDirectory)/docker
+          - download: current
+            artifact: native-community-linux-x64
+            displayName: Download smoke-tested native Community archive
+            condition: and(succeeded(), ne(variables.skipPublish, 'true'))
+          - script: |
+              set -euo pipefail
+              mkdir -p "$RELEASE_DIR/assets"
+              archive="deviceyard-community-$NATIVE_VERSION-linux-x64.tar.gz"
+              node ci/release/check-archive.cjs "$NATIVE_DIR/$archive" community
+              cp "$NATIVE_DIR/$archive" "$RELEASE_DIR/assets/$archive"
+              node ci/release/publish.cjs manifest "$NATIVE_DIR/$archive.json" "$RELEASE_DIR/assets/$archive.json"
+            displayName: Check archive and approve its manifest
+            condition: and(succeeded(), ne(variables.skipPublish, 'true'))
+            env:
+              NATIVE_VERSION: $(nativeVersion)
+              NATIVE_DIR: $(nativeDir)
+              RELEASE_DIR: $(releaseDir)
+          - script: |
+              set -euo pipefail
+              context="$RELEASE_DIR/context"
+              ci/release/image-context.sh "$RELEASE_DIR/assets/deviceyard-community-$NATIVE_VERSION-linux-x64.tar.gz" "$context"
+              docker buildx build --platform linux/amd64 --load \
+                --build-arg EDITION=community \
+                --build-arg SOURCE_REVISION="$SOURCE_REVISION" \
+                --build-arg VERSION="$NATIVE_VERSION" \
+                --iidfile "$RELEASE_DIR/image-id.txt" \
+                --tag "$IMAGE:$NATIVE_VERSION" \
+                -f ci/container/Dockerfile.release "$context"
+            displayName: Build release image from the archive
+            condition: and(succeeded(), ne(variables.skipPublish, 'true'), ne(variables.skipImage, 'true'))
+            env:
+              NATIVE_VERSION: $(nativeVersion)
+              RELEASE_DIR: $(releaseDir)
+              IMAGE: $(communityImage)
+              SOURCE_REVISION: $(Build.SourceVersion)
+              DOCKER_CONFIG: $(Agent.TempDirectory)/docker
+          - script: |
+              set -euo pipefail
+              node ci/container/smoke.cjs "$(< "$RELEASE_DIR/image-id.txt")" community
+            displayName: Verify release image lifecycle and persistence
+            condition: and(succeeded(), ne(variables.skipPublish, 'true'), ne(variables.skipImage, 'true'))
+            env:
+              RELEASE_DIR: $(releaseDir)
+              DOCKER_CONFIG: $(Agent.TempDirectory)/docker
+          - script: |
+              set -euo pipefail
+              # Tags come from this job's checkout (fetchTags: true). Publish runs are serialized by the
+              # Exclusive Lock check on deviceyard-publishing, so no other run can have pushed a newer
+              # tag since; no credentialed fetch is needed (also for Pro's private repository).
+              mapfile -t existing < <(git tag --list 'v*')
+              node ci/release/publish.cjs tags "$IMAGE" "$NATIVE_VERSION" "${existing[@]}" > "$RELEASE_DIR/image-tags.txt"
+              mapfile -t tags < "$RELEASE_DIR/image-tags.txt"
+              if [ "${tags[0]:-}" != "$IMAGE:$NATIVE_VERSION" ]; then
+                echo "Unexpected image tag list" >&2
+                exit 1
+              fi
+              built="$(< "$RELEASE_DIR/image-id.txt")"
+              # Floating tags first, the version tag last: the guard treats a missing <v> as "not pushed",
+              # so an interrupted push is redone completely by a re-run.
+              for tag in "${tags[@]:1}" "${tags[0]}"; do
+                # Every pushed tag points at the smoke-tested image.
+                docker tag "$built" "$tag"
+                docker push --quiet "$tag"
+              done
+            displayName: Push release image tags to GHCR
+            condition: and(succeeded(), ne(variables.skipPublish, 'true'), ne(variables.skipImage, 'true'))
+            env:
+              NATIVE_VERSION: $(nativeVersion)
+              RELEASE_DIR: $(releaseDir)
+              IMAGE: $(communityImage)
+              DOCKER_CONFIG: $(Agent.TempDirectory)/docker
+          - script: |
+              set -euo pipefail
+              # Highest v* release tag reachable from HEAD other than this version.
+              previous="$(git tag --merged HEAD --list 'v*' --sort=-v:refname \
+                | grep -Ex 'v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)' \
+                | grep -vxF "v$NATIVE_VERSION" | head -n 1 || true)"
+              echo "Release notes since: ${previous:-the beginning (first release)}"
+              node ci/release/notes.cjs since "${previous:--}" "$RELEASE_DIR/notes.md"
+            displayName: Collect release notes
+            condition: and(succeeded(), ne(variables.skipPublish, 'true'))
+            env:
+              NATIVE_VERSION: $(nativeVersion)
+              RELEASE_DIR: $(releaseDir)
+          - script: |
+              set -euo pipefail
+              archive="deviceyard-community-$NATIVE_VERSION-linux-x64.tar.gz"
+              node ci/release/publish.cjs github nmehlei/DeviceYard "$NATIVE_VERSION" "$RELEASE_DIR/notes.md" \
+                "$RELEASE_DIR/assets/$archive" "$RELEASE_DIR/assets/$archive.json"
+            displayName: Publish GitHub release
+            condition: and(succeeded(), ne(variables.skipPublish, 'true'))
+            env:
+              NATIVE_VERSION: $(nativeVersion)
+              RELEASE_DIR: $(releaseDir)
+              SOURCE_REVISION: $(Build.SourceVersion)
+              GITHUB_PUBLISH_TOKEN: $(GITHUB-PUBLISH-TOKEN)
+          - script: docker logout ghcr.io
+            displayName: Remove GHCR credentials
+            condition: always()
+            env:
+              DOCKER_CONFIG: $(Agent.TempDirectory)/docker
