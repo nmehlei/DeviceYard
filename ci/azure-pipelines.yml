@@ -256,7 +256,9 @@ stages:
               for tag in "${tags[@]:1}" "${tags[0]}"; do
                 # Every pushed tag points at the smoke-tested image.
                 docker tag "$built" "$tag"
-                docker push --quiet "$tag"
+                # Full progress output: a registry refusal then names the layer or manifest it refused.
+                echo "Pushing $tag"
+                docker push "$tag"
               done
             displayName: Push release image tags to GHCR
             condition: and(succeeded(), ne(variables.skipPublish, 'true'), ne(variables.skipImage, 'true'))
