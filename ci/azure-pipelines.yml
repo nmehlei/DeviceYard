@@ -256,7 +256,7 @@ stages:
               for tag in "${tags[@]:1}" "${tags[0]}"; do
                 # Every pushed tag points at the smoke-tested image.
                 docker tag "$built" "$tag"
-                # Full progress output: a registry refusal then names the layer or manifest it refused.
+                # Full progress output: a registry refusal then may name the layer or manifest it refused.
                 echo "Pushing $tag"
                 docker push "$tag"
               done
