@@ -69,3 +69,44 @@ test('CLI adds an entry to an index file or to a missing index', () => {
     assert.equal(fs.existsSync(path.join(dir, 'x.json')), false);
   } finally { fs.rmSync(dir, {recursive:true, force:true}); }
 });
+
+test('rejects an index that already lists a version twice', () => {
+  const index = {schemaVersion:1, releases:[entry('0.1.12'), entry('0.1.12', 'b'.repeat(64))]};
+  assert.throws(() => addRelease(index, entry('0.1.13')), /index/i);
+});
+
+test('accepts only URLs under the download base and the entry version', () => {
+  const good = entry('0.1.12');
+  const variants = [
+    {archive:{...good.archive, url:'https://evil.example/pro/0.1.12/x.tar.gz'}},
+    {archive:{...good.archive, url:`http://deviceyarddownloads.blob.core.windows.net/pro/0.1.12/${good.archive.file}`}},
+    {archive:{...good.archive, url:`https://user@deviceyarddownloads.blob.core.windows.net/pro/0.1.12/${good.archive.file}`}},
+    {archive:{...good.archive, url:`${BASE}/0.1.11/${good.archive.file}`}},
+    {archive:{...good.archive, file:'../x.tar.gz'}},
+    {manifestUrl:`${BASE}/0.1.11/manifest.json`},
+    {licenseUrl:'https://deviceyarddownloads.blob.core.windows.net.evil.example/pro/0.1.12/PRO-LICENSE'},
+  ];
+  for (const change of variants) assert.throws(() => addRelease(null, {...good, ...change}), /entry/i, JSON.stringify(change));
+  const other = 'https://downloads.example.test/pro';
+  assert.equal(addRelease(null, JSON.parse(JSON.stringify(good).replaceAll(BASE, other)), {baseUrl:other}).releases.length, 1);
+});
+
+test('rejects non-string versions, bad dates and oversized notes', () => {
+  const good = entry('0.1.12');
+  for (const change of [{version:['0.1.12']}, {coreVersion:[0, 1, 15]}, {date:'yesterday'}, {notes:Array(101).fill('x')},
+    {notes:['x'.repeat(1001)]}, {version:'1234567890.0.0'}]) {
+    assert.throws(() => addRelease(null, {...good, ...change}), /entry/i, JSON.stringify(change));
+  }
+});
+
+test('stores only known fields and never shares or mutates the inputs', () => {
+  const index = addRelease(null, entry('0.1.11'));
+  const snapshot = JSON.stringify(index);
+  const added = {...entry('0.1.12'), extra:'private'};
+  const result = addRelease(index, added);
+  assert.equal(JSON.stringify(index), snapshot);
+  assert.equal('extra' in result.releases[0], false);
+  result.releases[0].archive.size = 1;
+  assert.equal(added.archive.size, 13662965);
+  assert.notEqual(addRelease(result, entry('0.1.12')), result);
+});
