@@ -42,7 +42,7 @@ stages:
           - task: NodeTool@0
             inputs:
               versionSpec: '22.x'
-          - script: node --test ci/native/version.test.cjs ci/native/git-version.test.cjs ci/release/notes.test.cjs ci/release/check-archive.test.cjs ci/release/publish.test.cjs
+          - script: node --test ci/native/version.test.cjs ci/native/git-version.test.cjs ci/release/notes.test.cjs ci/release/check-archive.test.cjs ci/release/publish.test.cjs ci/release/downloads-index.test.cjs
             displayName: Test Community native version selection and release tooling
           - script: |
               # Best effort: credentials are not persisted; the check itself fails clearly if origin/main is missing.
