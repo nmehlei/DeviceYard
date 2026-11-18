@@ -1,7 +1,9 @@
 # Your first DeviceYard farm
 
 This guide starts Community from source with one USB-connected Android device.
-It does not modify an existing farm or install a system service.
+It does not modify an existing farm or install a system service. To run a
+published image or precompiled release archive instead (Community or Pro), see
+[Install DeviceYard](install.md).
 
 ## Prerequisites
 
