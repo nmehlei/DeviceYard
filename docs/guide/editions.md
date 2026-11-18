@@ -25,8 +25,9 @@ that selection. For Pro, see [device routing](device-routing.md), [isolation](is
 Start Community using [Getting started](getting-started.md). Native hosting and
 Docker use the same edition limits; a container does not unlock Pro features.
 
-Pro is distributed separately. Contact [CodeBakery](mailto:hello@codebakery.net?subject=DeviceYard%20Pro)
-for a subscription and installation instructions. Configure the customer ID
+Pro is distributed as its own image and archive; see [Install DeviceYard](install.md).
+Contact [CodeBakery](mailto:hello@codebakery.net?subject=DeviceYard%20Pro)
+for a subscription. Configure the customer ID
 provided for your organisation and upload the issued licence file using an
 administrator account. Licence verification is offline; a valid Pro
 distribution includes CodeBakery's verification keys.
