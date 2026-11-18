@@ -7,7 +7,7 @@ ID and a licence file. To build from source instead, see
 
 | | Community | Pro |
 | --- | --- | --- |
-| Image | `ghcr.io/nmehlei/deviceyard:<version>` | `ghcr.io/nmehlei/deviceyard-pro:<version>` |
+| Image | `ghcr.io/nmehlei/deviceyard:<version>` | `ghcr.io/nmehlei/deviceyard-pro:<version>` (not yet published) |
 | Archive | `deviceyard-community-<version>-linux-x64.tar.gz` | `deviceyard-pro-<version>-linux-x64.tar.gz` |
 | Download page | [GitHub releases](https://github.com/nmehlei/DeviceYard/releases) | [Pro releases](https://deviceyard.codebakery.net/pro/releases/) |
 
@@ -16,34 +16,40 @@ file; Pro releases add the Pro licence text. Images are published for
 **linux/amd64 only**. Pin an exact version (or image digest) in production;
 the `latest`, `<major>` and `<major>.<minor>` tags move with each release.
 
-Pro is published once it is generally available. Until the Pro releases page
-lists a version, contact [CodeBakery](mailto:hello@codebakery.net?subject=DeviceYard%20Pro).
+Pro archives are listed on the Pro releases page once Pro is generally
+available; the Pro image is announced there when it is published. Until then,
+contact [CodeBakery](mailto:hello@codebakery.net?subject=DeviceYard%20Pro).
 
 ## Install with Docker
 
 Prepare the host (USB access group, udev rule, private env file) as described
-in the [Linux container guide](container.md), then point Compose at the
-published image instead of a local build:
+in the [Linux container guide](container.md); the same preparation applies to
+the Pro image. Then point Compose at the published image instead of a local
+build:
 
 ```sh
-# Community
+export DEVICEYARD_ENV_FILE=/absolute/path/to/server.env
+export DEVICEYARD_USB_GID=<numeric gid of deviceyard-usb>
 export DEVICEYARD_IMAGE=ghcr.io/nmehlei/deviceyard:<version>
-# Pro
-export DEVICEYARD_IMAGE=ghcr.io/nmehlei/deviceyard-pro:<version>
+# Pro, once published: ghcr.io/nmehlei/deviceyard-pro:<version>
 
 docker pull "$DEVICEYARD_IMAGE"
 docker compose -f ci/container/compose.yaml up --no-build -d
 ```
 
-`ci/container/compose.yaml` is in the Community repository; take it from the
-release tag matching your version. For Pro, add `DEVICEYARD_CUSTOMER_ID` to the
-private env file (see [Add your Pro licence](#add-your-pro-licence)).
+`compose.yaml` is in the Community repository under `ci/container/`; take it
+from the release tag matching your version and save it at that path, or adjust
+`-f`. For Pro, add `DEVICEYARD_CUSTOMER_ID` to the private env file (see
+[Add your Pro licence](#add-your-pro-licence)).
 
 ## Install from a release archive
 
 The archive contains the compiled server, dashboard, CLI/MCP assets and their
 production dependencies. It does not contain Node.js, ADB, Java or Maestro;
-install those on the host as listed in [Getting started](getting-started.md#prerequisites).
+install Node.js 22.13 or later and the other tools on the host as listed in
+[Getting started](getting-started.md#prerequisites) (npm is not needed). For
+Pro work-profile isolation, also install the Maestro build described in
+[isolation](isolation.md); the Pro image bundles it.
 
 1. Download the archive and `SHA256SUMS` for one version into an empty
    directory: Community from its GitHub release, Pro from the Pro releases page.
@@ -73,9 +79,8 @@ install those on the host as listed in [Getting started](getting-started.md#prer
    ```
 
 For unattended use, run the same command under your service manager with a
-dedicated account. `release.json` and `BUILD_INFO` in the extracted directory
-record the version and source revisions; `notices/` holds the licence and
-third-party notices.
+dedicated account. `BUILD_INFO` in the extracted directory records the version
+and source revisions; `notices/` holds the licence and third-party notices.
 
 ## Add your Pro licence
 
@@ -86,6 +91,8 @@ licence file (JSON).
    Pro build refuses to start without it.
 2. Sign in to the dashboard as an administrator, open **Devices**, and upload the
    licence file under **Pro license file**.
+3. On the same card, select a Community fallback device. It takes one job at a
+   time if the licence lapses; without it, new work stays queued.
 
 DeviceYard verifies the licence offline against the verification keys bundled
 in the Pro release and stores it as `pro-license.json` in `DATA_DIR`, so it
@@ -96,7 +103,8 @@ public issue.
 
 ## Upgrade
 
-Use [maintenance mode](maintenance.md) to drain work, back up `DATA_DIR` (for
-Docker, both volumes) and the private configuration, then switch to the new
+Use [maintenance mode](maintenance.md) to drain work, back up `DATA_DIR`, the
+ADB keys (`~/.android` of the service account; for Docker, the `data` and
+`adb-identity` volumes) and the private configuration, then switch to the new
 image or archive directory. Keep the previous version and its matching backup
 for rollback; an older version may not read a newer database schema.
