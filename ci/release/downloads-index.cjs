@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // The public Pro download index (index.json): every published version, newest first.
 // Published versions are immutable: re-adding one with the same sha256 changes nothing,
-// with a different sha256 it fails and the index stays as it was. Updaters trust the
-// sha256 in this file, so every URL must point under the download base and its version.
+// except that an entry naming the image adds it once the Pro image is public. With a
+// different sha256 it fails and the index stays as it was. Updaters trust the sha256 in
+// this file, so every URL must point under the download base and its version.
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -17,6 +18,10 @@ const MAX_NOTE_LENGTH = 1000;
 
 const isString = (value) => typeof value === 'string';
 const isVersion = (value) => isString(value) && SEMVER.test(value);
+const IMAGE = 'ghcr.io/nmehlei/deviceyard-pro';
+// A real calendar date: 2026-02-29 and 2026-99-99 are rejected.
+const isDate = (value) => isString(value) && DATE.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`))
+  && new Date(`${value}T00:00:00Z`).toISOString().startsWith(value);
 
 function parts(version) {
   return SEMVER.exec(version).slice(1).map(Number);
@@ -39,17 +44,19 @@ function isReleaseUrl(value, baseUrl, version) {
 function normalizeEntry(entry, baseUrl) {
   const fail = () => { throw Error(`Malformed release entry${entry && isString(entry.version) ? ` ${entry.version}` : ''}`); };
   if (!entry || typeof entry !== 'object' || Array.isArray(entry)) fail();
-  const {version, date, notes, coreVersion, image, archive, manifestUrl, licenseUrl} = entry;
-  if (!isVersion(version) || !isVersion(coreVersion) || !isString(date) || !DATE.test(date)
-    || Number.isNaN(Date.parse(`${date}T00:00:00Z`)) || !isString(image) || image.length > 200
+  const {version, date, notes, coreVersion, image, archive, manifestUrl, licenseUrl, sumsUrl} = entry;
+  if (!isVersion(version) || !isVersion(coreVersion) || !isDate(date)
+    // The image is listed only once it is public, and then it is this release's own tag.
+    || (image !== undefined && image !== `${IMAGE}:${version}`)
     || !Array.isArray(notes) || notes.length > MAX_NOTES
     || notes.some((line) => !isString(line) || line.length > MAX_NOTE_LENGTH)
-    || !archive || typeof archive !== 'object' || !isString(archive.file) || !FILE.test(archive.file) || archive.file.includes('..')
+    || !archive || typeof archive !== 'object' || archive.file !== `deviceyard-pro-${version}-linux-x64.tar.gz`
     || archive.url !== `${baseUrl}/${version}/${archive.file}`
     || !Number.isSafeInteger(archive.size) || archive.size <= 0 || !isString(archive.sha256) || !SHA256.test(archive.sha256)
-    || !isReleaseUrl(manifestUrl, baseUrl, version) || !isReleaseUrl(licenseUrl, baseUrl, version)) fail();
-  return {version, date, notes:[...notes], coreVersion, image,
-    archive:{file:archive.file, url:archive.url, size:archive.size, sha256:archive.sha256}, manifestUrl, licenseUrl};
+    || !isReleaseUrl(manifestUrl, baseUrl, version) || !isReleaseUrl(licenseUrl, baseUrl, version)
+    || sumsUrl !== `${baseUrl}/${version}/SHA256SUMS`) fail();
+  return {version, date, notes:[...notes], coreVersion, ...(image === undefined ? {} : {image}),
+    archive:{file:archive.file, url:archive.url, size:archive.size, sha256:archive.sha256}, manifestUrl, licenseUrl, sumsUrl};
 }
 
 function normalizeIndex(index, baseUrl) {
@@ -73,7 +80,10 @@ function addRelease(index, entry, {baseUrl = DEFAULT_BASE_URL} = {}) {
   if (existing && existing.archive.sha256 !== added.archive.sha256) {
     throw Error(`Version ${added.version} already published with different contents`);
   }
-  return {schemaVersion:1, releases:(existing ? releases : [...releases, added]).sort(compareDescending)};
+  if (!existing) return {schemaVersion:1, releases:[...releases, added].sort(compareDescending)};
+  // Same contents: keep the published entry, adding only the image once it is public.
+  const kept = existing.image === undefined && added.image !== undefined ? {...existing, image:added.image} : existing;
+  return {schemaVersion:1, releases:releases.map((release) => (release === existing ? kept : release)).sort(compareDescending)};
 }
 
 module.exports = {addRelease, DEFAULT_BASE_URL};

@@ -14,8 +14,44 @@ function entry(version, sha256 = 'a'.repeat(64)) {
     image:`ghcr.io/nmehlei/deviceyard-pro:${version}`,
     archive:{file, url:`${BASE}/${version}/${file}`, size:13662965, sha256},
     manifestUrl:`${BASE}/${version}/${file}.json`, licenseUrl:`${BASE}/${version}/PRO-LICENSE`,
+    sumsUrl:`${BASE}/${version}/SHA256SUMS`,
   };
 }
+function withoutImage(version, sha256) {
+  const {image, ...rest} = entry(version, sha256);
+  return rest;
+}
+
+test('requires the SHA256SUMS link inside the release folder', () => {
+  const good = entry('0.1.12');
+  for (const change of [{sumsUrl:undefined}, {sumsUrl:`${BASE}/0.1.11/SHA256SUMS`}, {sumsUrl:`${BASE}/0.1.12/sums.txt`},
+    {sumsUrl:'https://evil.example/SHA256SUMS'}]) {
+    assert.throws(() => addRelease(null, {...good, ...change}), /entry/i, JSON.stringify(change));
+  }
+});
+
+test('image is optional, and when set it is the release\'s own Pro tag', () => {
+  assert.equal('image' in addRelease(null, withoutImage('0.1.12')).releases[0], false);
+  for (const image of ['ghcr.io/nmehlei/deviceyard-pro:0.1.11', 'ghcr.io/someone/else:0.1.12', '']) {
+    assert.throws(() => addRelease(null, {...entry('0.1.12'), image}), /entry/i, image);
+  }
+});
+
+test('adds the image to a published version once it is public, and changes nothing else', () => {
+  const index = addRelease(null, withoutImage('0.1.12'));
+  const result = addRelease(index, {...entry('0.1.12'), date:'2026-12-01', notes:['Other.']});
+  assert.deepEqual(result.releases, [{...withoutImage('0.1.12'), image:'ghcr.io/nmehlei/deviceyard-pro:0.1.12'}]);
+  assert.equal('image' in index.releases[0], false);
+});
+
+test('rejects impossible dates and archive names other than the release archive', () => {
+  for (const change of [{date:'2026-02-29'}, {date:'2026-99-99'}]) {
+    assert.throws(() => addRelease(null, {...entry('0.1.12'), ...change}), /entry/i, JSON.stringify(change));
+  }
+  assert.equal(addRelease(null, {...entry('0.1.12'), date:'2028-02-29'}).releases[0].date, '2028-02-29');
+  const file = 'other.tar.gz';
+  assert.throws(() => addRelease(null, {...entry('0.1.12'), archive:{...entry('0.1.12').archive, file, url:`${BASE}/0.1.12/${file}`}}), /entry/i);
+});
 
 test('adds the first release to an empty index', () => {
   assert.deepEqual(addRelease(null, entry('0.1.12')), {schemaVersion:1, releases:[entry('0.1.12')]});
