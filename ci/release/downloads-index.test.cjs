@@ -42,6 +42,18 @@ test('adds the image to a published version once it is public, and changes nothi
   const result = addRelease(index, {...entry('0.1.12'), date:'2026-12-01', notes:['Other.']});
   assert.deepEqual(result.releases, [{...withoutImage('0.1.12'), image:'ghcr.io/nmehlei/deviceyard-pro:0.1.12'}]);
   assert.equal('image' in index.releases[0], false);
+  const withOther = addRelease(addRelease(null, entry('0.1.11')), withoutImage('0.1.12'));
+  assert.deepEqual(addRelease(withOther, entry('0.1.12')).releases.map((r) => [r.version, 'image' in r]),
+    [['0.1.12', true], ['0.1.11', true]]);
+});
+
+test('a published image stays when the version is re-added without one', () => {
+  const index = addRelease(null, entry('0.1.12'));
+  assert.deepEqual(addRelease(index, withoutImage('0.1.12')), index);
+});
+
+test('a trailing slash on the base URL is ignored', () => {
+  assert.equal(addRelease(null, entry('0.1.12'), {baseUrl:`${BASE}/`}).releases.length, 1);
 });
 
 test('rejects impossible dates and archive names other than the release archive', () => {

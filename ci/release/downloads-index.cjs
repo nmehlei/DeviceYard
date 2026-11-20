@@ -73,7 +73,8 @@ function normalizeIndex(index, baseUrl) {
   return releases;
 }
 
-function addRelease(index, entry, {baseUrl = DEFAULT_BASE_URL} = {}) {
+function addRelease(index, entry, {baseUrl: rawBaseUrl = DEFAULT_BASE_URL} = {}) {
+  const baseUrl = rawBaseUrl.replace(/\/+$/, '');
   const added = normalizeEntry(entry, baseUrl);
   const releases = index === null ? [] : normalizeIndex(index, baseUrl);
   const existing = releases.find((release) => release.version === added.version);
