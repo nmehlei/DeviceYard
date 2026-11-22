@@ -22,6 +22,8 @@ const env = {
   DEVICE_ID: 'smoke-device', TOKENS_JSON: '{}', ADMIN_USERNAME: 'smoke',
   ADMIN_EMAIL: 'smoke@example.invalid', ADMIN_PASSWORD: password,
   SESSION_SECRET: randomBytes(32).toString('hex'), TOKEN_ENCRYPTION_KEY: randomBytes(32).toString('hex'),
+  // Pro refuses to start without a customer ID; unlicensed it still runs as single-device Pro.
+  ...(editionName === 'pro' ? {DEVICEYARD_CUSTOMER_ID: 'smoke-customer'} : {}),
 };
 let stage = 'image availability';
 async function docker(args, timeout = 120000) {
@@ -106,7 +108,9 @@ async function main() {
     assert.equal(await identity(),publicIdentity,'ADB authorization identity must persist');
     await stop();
     stage = 'invalid configuration';
-    for (const override of [{ADMIN_PASSWORD:''},{TOKENS_JSON:`{"invalid":"${password}`}]) {
+    const invalid = [{ADMIN_PASSWORD:''},{TOKENS_JSON:`{"invalid":"${password}`}];
+    if (editionName === 'pro') invalid.push({DEVICEYARD_CUSTOMER_ID:''});
+    for (const override of invalid) {
       writeEnv({...env,...override});
       await docker(['run','-d','--name',name,'--env-file',envFile,image]);
       const code = await docker(['wait',name],30000);
@@ -115,7 +119,7 @@ async function main() {
       assert.ok(!logs.includes(password),'Credential leaked in invalid-config output');
       await docker(['rm',name]);
     }
-    console.log('Container smoke passed: tools, non-root startup, Community policy, durable data/ADB identity, graceful stop, sanitized config failures');
+    console.log(`Container smoke passed: tools, non-root startup, ${editionName} policy, durable data/ADB identity, graceful stop, sanitized config failures`);
   } finally {
     await docker(['rm','-f',name]).catch(()=>{});
     for (const volume of volumes) await docker(['volume','rm',volume]).catch(()=>{});
